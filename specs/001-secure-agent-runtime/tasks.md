@@ -49,8 +49,18 @@ source-system evidence and review. Never substitute synthetic results for vendor
 - [X] T021 Add pooler routing and database-reader capability profile.
 - [ ] T022 Complete live signed user/actor exchange and exact RAR verification.
 
- 
+
 ## Governance and contribution documentation
 - [X] T023 Update README/CONTRIBUTING, review ownership and PR template.
 - [X] T024 Version sanitized Spec Kit artifacts and ADRs; retain private-source exclusions.
 - [X] T025 Validate specification gates from a clean publishable checkout without local state.
+
+
+## Delegated identity implementation
+- [X] T026 Implement separate-client PKCE login in ignored chat/ with validated callback and private sessions.
+- [X] T027 Verify subject and actor before exchange; validate exact returned delegation grants.
+- [X] T028 Request exact-lease cleanup authorization separately from credential-read authorization.
+- [X] T029 Test signed end-to-end broker contracts, denial and cancellation cleanup.
+- [ ] T030 Exercise the real user/agent/Vault/database chain and capture private evidence.
+
+- [X] T031 Build ignored local chat frontend with user-isolated conversation context and session boundary tests.

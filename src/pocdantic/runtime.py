@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from pydantic import TypeAdapter
 from pydantic_ai import Agent
+from pydantic_ai.messages import ModelMessage
 from pydantic_ai.models import Model
 from pydantic_ai.usage import UsageLimits
 
@@ -97,7 +98,12 @@ class Runtime:
                 task.cancel()
 
     async def run(
-        self, request: RequestEnvelope, principal: Principal, *, database_reader=None
+        self,
+        request: RequestEnvelope,
+        principal: Principal,
+        *,
+        database_reader=None,
+        message_history: list[ModelMessage] | None = None,
     ) -> AgentResponse:
         run_id = uuid4()
         limits = UsageLimits(
@@ -141,6 +147,7 @@ class Runtime:
                 result = await self.agents[request.profile].run(
                     request.task,
                     deps=deps,
+                    message_history=message_history,
                     usage_limits=limits,
                     metadata={
                         "request_id": str(request.request_id),
@@ -150,6 +157,8 @@ class Runtime:
                     },
                 )
             self.containment.check(self.settings.workload_definition, run_id)
+            if message_history is not None:
+                message_history[:] = result.all_messages()
             deps.record("run", "completed")
             return AgentResponse(**common, status="completed", output=result.output)
         except SecurityError as error:

@@ -7,7 +7,20 @@ from .oauth import JWTVerifier, OAuthClient
 from .probe import oauth_config
 from .security import SecurityError
 from .settings import Settings
-from .vault import VaultClient, read_postgres
+from .vault import VaultClient, read_postgres, validate_path
+
+
+def validate_delegation(claims: dict, subject: str, actor: dict, details: list[dict]):
+    act = claims.get("act")
+    if (
+        claims.get("sub") != subject
+        or not isinstance(act, dict)
+        or act.get("sub") != actor["sub"]
+        or act.get("iss", actor["iss"]) != actor["iss"]
+        or "act" in act
+        or claims.get("authorization_details") != details
+    ):
+        raise SecurityError("delegation_claims_invalid")
 
 
 @dataclass(frozen=True)
@@ -18,34 +31,61 @@ class DatabaseBroker:
 
     async def __call__(self, record_id: int) -> list[dict]:
         s = self.settings
-        if not all((s.vault_addr, s.vault_audience, s.database_host, s.database_name)):
+        if not all(
+            (s.vault_addr, s.vault_audience, s.oauth_audience, s.database_host, s.database_name)
+        ):
             raise SecurityError("database_integration_not_configured")
         async with httpx.AsyncClient(timeout=15, follow_redirects=False) as http:
             oauth = OAuthClient(oauth_config(s), http)
+            user_verifier = JWTVerifier(oauth, s.oauth_audience, token_typ=s.oauth_access_token_typ)
+            principal = await user_verifier.verify(self.subject_token)
+            if principal.subject != self.subject or "database:read" not in principal.scopes:
+                raise SecurityError("database_subject_invalid")
             actor = await oauth.client_credentials()
-            verifier = JWTVerifier(oauth, s.vault_audience, token_typ=s.oauth_access_token_typ)
-            exchanged = await oauth.exchange(
-                self.subject_token, actor.access_token, s.vault_read_path, s.vault_audience
-            )
-            claims = await verifier.verify_claims(exchanged.access_token)
-            # Verify subject and actor identities independently, plus exact granted constraints.
-            metadata = await oauth.metadata()
-            actor_verifier = JWTVerifier(
+            actor_claims = await JWTVerifier(
                 oauth, s.actor_audience or s.oauth_client_id, token_typ=s.oauth_access_token_typ
-            )
-            actor_claims = await actor_verifier.verify_claims(actor.access_token)
-            expected = [
-                {"type": "vault:path_access", "path": s.vault_read_path, "capabilities": ["read"]}
-            ]
-            if (
-                claims["sub"] != self.subject
-                or claims.get("act", {}).get("sub") != actor_claims["sub"]
-                or claims.get("authorization_details") != expected
-                or claims["iss"] != metadata["issuer"]
+            ).verify_claims(actor.access_token)
+            if actor_claims["sub"] == self.subject or (
+                "client_id" in actor_claims and actor_claims["client_id"] != s.oauth_client_id
             ):
-                raise SecurityError("delegation_claims_invalid")
+                raise SecurityError("database_actor_invalid")
+            verifier = JWTVerifier(oauth, s.vault_audience, token_typ=s.oauth_access_token_typ)
+
+            async def delegated(details):
+                exchanged = await oauth.exchange_details(
+                    self.subject_token, actor.access_token, details, s.vault_audience
+                )
+                claims = await verifier.verify_claims(exchanged.access_token)
+                validate_delegation(claims, self.subject, actor_claims, details)
+                return exchanged.access_token
+
+            read_details = [
+                {
+                    "type": "vault:path_access",
+                    "path": validate_path(s.vault_read_path),
+                    "capabilities": ["read"],
+                }
+            ]
+            read_token = await delegated(read_details)
             vault = VaultClient(s.vault_addr, s.vault_namespace, http)
-            async with vault.credentials(exchanged.access_token, s.vault_read_path) as lease:
+
+            async def revoke(lease_id):
+                validate_path(lease_id)
+                if not lease_id.startswith(s.vault_read_path + "/"):
+                    raise SecurityError("vault_lease_scope_invalid")
+                cleanup_details = [
+                    {
+                        "type": "vault:path_access",
+                        "path": "sys/leases/revoke",
+                        "capabilities": ["update"],
+                        "required_parameters": ["lease_id"],
+                        "allowed_parameters": {"lease_id": [lease_id]},
+                    }
+                ]
+                cleanup_token = await delegated(cleanup_details)
+                await vault.revoke(cleanup_token, lease_id)
+
+            async with vault.credentials(read_token, s.vault_read_path, revoke=revoke) as lease:
                 return await read_postgres(
                     lease,
                     host=s.database_host,

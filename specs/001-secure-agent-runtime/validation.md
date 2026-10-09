@@ -4,7 +4,7 @@ Owner: mcteer. Observed: 2026-10-09.
 
 ## Software baseline
 
-62 deterministic tests passed with the server, Logfire and PostgreSQL extras.
+80 deterministic harness tests passed with the server, Logfire and PostgreSQL extras.
 Lint, formatting, lockfile, configuration and distribution privacy checks passed.
 An installed slim-base wheel completed the offline demo outside the repository.
 
@@ -29,3 +29,19 @@ pending the required reviewed evidence.
 Constitution 1.2.0, sanitized Spec Kit artifacts, review workflow and ADRs are versioned.
 CI validates all features independently of machine-local state. Customer design sources,
 credentials, live inventories and raw evidence remain excluded.
+
+## Delegated identity follow-up
+
+Signed mock-transport tests prove independently validated human and actor identity,
+exact returned subject/actor/RAR claims, and distinct parameter-bound lease cleanup.
+Failure and cancellation revoke the acquired lease. Host-supplied conversation history
+preserves context without bypassing fresh run policy and containment checks.
+
+Five local chat-host tests pass separately, covering shell assets, host/origin checks,
+expired sessions, CSRF, PKCE binding, callback replay and token privacy. The entire
+chat/ directory is ignored and rejected by the publish policy. Browser visual review
+is pending because no browser surface is available in this session.
+
+Live client registration returned HTTP 403. The separate human client and API audience
+are absent; T022/T030 cannot pass until application setup and real human sign-in
+complete. This is a concrete external prerequisite, not a mock acceptance pass.

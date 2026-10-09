@@ -187,3 +187,26 @@ async def test_expired_identity_rejected_before_model():
     )
     assert result.status == "denied" and result.error_code == "identity_expired"
     assert not any(x["outcome"] == "started" for x in runtime.audit.events)
+
+
+async def test_host_owned_history_preserves_context_without_reusing_authority():
+    seen = []
+
+    def respond(messages, info):
+        seen.append(len(messages))
+        return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, {"summary": "done"})])
+
+    runtime = Runtime(Settings(_env_file=None), model=FunctionModel(respond))
+    history = []
+    first = await runtime.run(
+        RequestEnvelope(task="Remember the incident"), user(), message_history=history
+    )
+    assert first.status == "completed" and history
+    second = await runtime.run(RequestEnvelope(task="Continue"), user(), message_history=history)
+    assert second.status == "completed" and seen[-1] > seen[0]
+    before = list(history)
+    runtime.containment.block_definition("parent")
+    denied = await runtime.run(
+        RequestEnvelope(task="Continue again"), user(), message_history=history
+    )
+    assert denied.status == "denied" and history == before

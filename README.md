@@ -166,8 +166,8 @@ Without a backend, the tool returns `approval_required` and performs no write.
 
 `database-read` uses `DatabaseBroker`: agent client credentials → subject/actor
 exchange with exact `vault:path_access` RAR → delegated JWT claim validation →
-Vault dynamic lease → fixed parameterized SELECT → connection close → explicit
-lease revoke. No operator token is substituted if delegation fails. Malformed
+Vault dynamic lease → fixed parameterized SELECT → connection close → separate
+exact-lease cleanup grant → explicit lease revoke. No operator token is substituted if delegation fails. Malformed
 credential responses with a lease handle still trigger cleanup. Cleanup failure
 prevents a success result. Agent execution uses leased credentials; administrative
 provisioning credentials remain local.
@@ -264,3 +264,8 @@ not be assumed. Bundled Spec Kit support assets retain their upstream MIT notice
 .specify/THIRD_PARTY_LICENSE.txt.
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting an issue or PR, including
 its private vulnerability reporting guidance.
+
+Host applications can pass a private `message_history` list to `Runtime.run` for
+conversation context. Isolate this list by verified user and agent profile; it is
+updated only after a successful run. Identity, policy and containment are checked
+on every invocation. Frontend files remain outside the published harness paths.
