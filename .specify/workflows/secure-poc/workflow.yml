@@ -1,0 +1,63 @@
+schema_version: "1.0"
+workflow:
+  id: "secure-poc"
+  name: "Secure PoC development"
+  version: "1.0.0"
+  author: "mcteer"
+  description: "Reviewed requirements, security boundaries, analysis and implementation."
+requires:
+  speckit_version: ">=1.0.12"
+inputs:
+  spec:
+    type: string
+    required: true
+    prompt: "Describe the change using sanitized requirements."
+  integration:
+    type: string
+    default: "auto"
+steps:
+  - id: specify
+    command: speckit.specify
+    integration: "{{ inputs.integration }}"
+    input:
+      args: "{{ inputs.spec }}"
+  - id: clarify
+    command: speckit.clarify
+    integration: "{{ inputs.integration }}"
+  - id: review-requirements
+    type: gate
+    message: "Approve requirements, acceptance criteria and security boundaries."
+    options: [approve, reject]
+    on_reject: abort
+  - id: plan
+    command: speckit.plan
+    integration: "{{ inputs.integration }}"
+  - id: checklist
+    command: speckit.checklist
+    integration: "{{ inputs.integration }}"
+    input:
+      args: "Review identity, authorization, secret isolation, cleanup, compatibility and acceptance requirements."
+  - id: review-design
+    type: gate
+    message: "Approve plan/contracts and review every requirements checklist item."
+    options: [approve, reject]
+    on_reject: abort
+  - id: tasks
+    command: speckit.tasks
+    integration: "{{ inputs.integration }}"
+  - id: analyze
+    command: speckit.analyze
+    integration: "{{ inputs.integration }}"
+  - id: review-analysis
+    type: gate
+    message: "Approve traceability and resolve all critical consistency findings before implementation."
+    options: [approve, reject]
+    on_reject: abort
+  - id: implement
+    command: speckit.implement
+    integration: "{{ inputs.integration }}"
+  - id: review-validation
+    type: gate
+    message: "Review passing software gates, publication contents and outstanding live acceptance evidence."
+    options: [approve, reject]
+    on_reject: abort

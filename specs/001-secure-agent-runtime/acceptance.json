@@ -1,0 +1,122 @@
+[
+  {
+    "criterion": "UC1-01",
+    "status": "blocked",
+    "owner": "mcteer / integration owner",
+    "reason": "Source-system and trace secret review pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC1-02",
+    "status": "blocked",
+    "owner": "mcteer / integration owner",
+    "reason": "Live lease/revoke proven; delegated user/actor exchange still pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC1-03",
+    "status": "blocked",
+    "owner": "mcteer / integration owner",
+    "reason": "Live SELECT-only grant and write denial evidence captured; acceptance review pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC1-04",
+    "status": "blocked",
+    "owner": "mcteer / integration owner",
+    "reason": "Live Vault out-of-policy denial pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC1-05",
+    "status": "blocked",
+    "owner": "mcteer / integration owner",
+    "reason": "Vault source audit correlation pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC2-01",
+    "status": "blocked",
+    "owner": "mcteer / integration owner",
+    "reason": "Parent write lineage and live authorization pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC2-02",
+    "status": "blocked",
+    "owner": "mcteer / integration owner",
+    "reason": "Phone push permissions and bound decision evidence pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC2-03",
+    "status": "blocked",
+    "owner": "mcteer / integration owner",
+    "reason": "Reviewed live audit export pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC3-01",
+    "status": "blocked",
+    "owner": "mcteer / integration owner",
+    "reason": "External JWT blocking/revocation semantics pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC3-02",
+    "status": "blocked",
+    "owner": "mcteer / integration owner",
+    "reason": "Live session suspension and notification pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC3-03",
+    "status": "blocked",
+    "owner": "mcteer / integration owner",
+    "reason": "VIP-originated secret remediation pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC3-04",
+    "status": "blocked",
+    "owner": "mcteer / integration owner",
+    "reason": "Measured live remediation latency pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC4-01",
+    "status": "blocked",
+    "owner": "mcteer / integration owner",
+    "reason": "Attested workload bootstrap, SVID and registry pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC4-02",
+    "status": "blocked",
+    "owner": "mcteer / integration owner",
+    "reason": "Live Vault ceiling enforcement pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC4-03",
+    "status": "blocked",
+    "owner": "mcteer / integration owner",
+    "reason": "Actual pre-enrollment VIP observation pending",
+    "source": "none",
+    "references": []
+  }
+]
