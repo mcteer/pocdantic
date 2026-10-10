@@ -2,7 +2,8 @@
 
 **Status**: T001–T033 software work completed on feature/004-signed-in-workflow.
 T034 configured live walkthrough completed on 2026-10-10, including the no-refresh
-sign-in-again fallback and sign-out during an acquired-credential read. T035 delivery is in progress under the owner's explicit push/PR/merge-after-green-CI instruction.
+sign-in-again fallback and sign-out during an acquired-credential read. T035 PR preparation and delivery checks completed; final CI/merge proof is recorded in
+[PR #5](https://github.com/mcteer/pocdantic/pull/5).
 
 ## Implemented behavior
 
@@ -149,7 +150,8 @@ The final wheel/sdist build includes that hardening.
 
 ## Delivery and hooks
 
-No push, PR, merge or repository-protection change was performed. T035 requires a later delivery
+At software handoff, no push, PR, merge or repository-protection change had been performed.
+T035 then required a later delivery
 request and fresh CI/protection/review checks or a newly scoped owner exception. PR #4's exception
 expired on its merge. Changes are staged for review; private helpers and screenshots are excluded.
 
@@ -222,7 +224,7 @@ No new phone approval prompts, tenant changes, or database record/schema changes
 T001–T034 are checked. The owner subsequently requested T035 delivery. The private live controllers
 and raw outcomes remain ignored; only sanitized documentation is staged.
 
-## Authorized delivery — in progress
+## Authorized delivery
 
 Owner: repository owner. Current instruction: “push + pr + merge when CI is green.”
 Scope: this feature/004-signed-in-workflow PR only, expiring on its merge. Rationale:
@@ -252,3 +254,27 @@ Final local regression after that change: 325 passed in 63.71 seconds, including
 WebKit scenarios. Ruff check/format, wheel/sdist build, and distribution privacy passed.
 The earlier 324-test result remains historical. The revised head must pass both push and
 PR CI before merging; the initial passing PR run does not waive the failed push run.
+
+## T035 delivery checks complete
+
+PR #5 is prepared with the repository template, sanitized acceptance/validation summary,
+compatibility and dependency/license review, security-boundary analysis, and explicit live
+limitations. Publication contents were reviewed; the private controllers, credentials,
+source evidence, screenshots, and generated artifacts remain excluded.
+
+Both revised implementation-head CI runs passed at
+5c1ab5b740964399cbbb248bb1e12504607193e8:
+- Push: https://github.com/mcteer/pocdantic/actions/runs/38061112429
+- Pull request: https://github.com/mcteer/pocdantic/actions/runs/38061116154
+
+Each ran 325 tests including eighteen WebKit scenarios, privacy/history, feature/runtime
+gates, lint/format, offline validation/demo, build, and distribution checks. Fresh GitHub
+inspection confirmed the PR is mergeable, conversations have no review comments, and main
+still has no protection or rulesets. The owner-directed scope and compensating controls
+recorded above apply only to this PR and expire at merge; no independent approval is claimed.
+
+T035's requested PR preparation and review/check record is complete. This documentation-only
+closeout commit must also pass both CI runs before the authorized squash merge. The final
+head, green check URLs, and merge commit are recorded in PR #5's Delivery record so the
+repository ledger does not assert a merge before it occurs or require a post-merge push.
+All T001–T035 tasks are checked. No acceptance.json dispositions were changed.

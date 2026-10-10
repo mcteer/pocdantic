@@ -1,7 +1,7 @@
 # Tasks: Signed-in agent workflow
 
 **Input**: `specs/004-signed-in-workflow/`
-**Status**: Software implementation and validation complete (T001–T033). T034 live walkthrough complete (provider no-refresh fallback verified); T035 delivery requested; push/PR/CI/merge in progress.
+**Status**: Software implementation and validation complete (T001–T033). T034 live walkthrough complete (provider no-refresh fallback verified); T035 PR preparation and delivery checks complete; final delivery state is recorded in PR #5.
 **Tests**: Required by spec FR-015 and the constitution. Write security tests first and verify failure before changing the boundary.
 
 Tasks follow the clarified browser workspace scope. C01–C14 below are verbatim constraints from data-model.md, with whitespace normalized. Source paths are repository-relative.
@@ -84,7 +84,7 @@ This task is independently incomplete if external prerequisites are unavailable;
 
 Planning and implementation do not imply a request to publish or merge. Existing PR #4 exception has expired.
 
-- [ ] T035 When delivery is later requested, prepare the reviewed PR using .github/pull_request_template.md, verify current CI/protection/review and publication contents, and record proof or a new explicit scoped owner exception in specs/004-signed-in-workflow/validation.md. Preserve live limitations; do not silently change protection or reuse the previous exception. (FR-016, SC-006)
+- [X] T035 When delivery is later requested, prepare the reviewed PR using .github/pull_request_template.md, verify current CI/protection/review and publication contents, and record proof or a new explicit scoped owner exception in specs/004-signed-in-workflow/validation.md. Preserve live limitations; do not silently change protection or reuse the previous exception. (FR-016, SC-006)
 
 ## Dependencies and execution order
 
