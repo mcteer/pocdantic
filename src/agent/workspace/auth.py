@@ -1,4 +1,13 @@
-"""Code/PKCE login and separately verified resource credentials."""
+"""Browser OAuth login and serialized session credential admission.
+
+State, nonce, and PKCE bind the login to a browser attempt. ID tokens establish the
+login, while separately verified access tokens establish resource identity. Refresh
+must preserve that identity and leave enough time for bounded execution and cleanup.
+
+State ties the callback to the browser attempt. Nonce ties the signed ID token to
+that same attempt. PKCE adds a private verifier so possessing the authorization code
+alone is insufficient to redeem it. All three values stay out of task/model content.
+"""
 
 import base64
 import hashlib
@@ -27,11 +36,17 @@ class Credentials:
     expires: float
 
     def with_expiry(self, expiry):
+        """Return a new credential snapshot with the supplied expiry, preserving its secret
+        values.
+        """
         return replace(self, expires=expiry)
 
 
 class WorkspaceAuth:
     def __init__(self, settings, http, origin):
+        """Bind login OAuth configuration, caller-owned HTTP client, and exact loopback
+        callback URL.
+        """
         self.settings, self.http, self.origin = settings, http, origin
         discovery = settings.oauth_discovery_url
         if not discovery and settings.verify_tenant_url:
@@ -55,6 +70,9 @@ class WorkspaceAuth:
         )
 
     async def start(self, browser):
+        """Create a bounded login attempt with fresh state, nonce, and PKCE under the
+        browser lock.
+        """
         async with browser.lock:
             metadata = await self.oauth.metadata()
             endpoint = self.oauth.validate_endpoint(metadata["authorization_endpoint"])
@@ -84,6 +102,9 @@ class WorkspaceAuth:
             )
 
     def consume(self, browser, state):
+        """Consume matching unexpired state exactly once, rejecting replay or browser
+        mismatch.
+        """
         attempt = browser.attempt
         if (
             not isinstance(state, str)
@@ -97,7 +118,11 @@ class WorkspaceAuth:
         return attempt
 
     async def complete(self, browser, code, state):
+        """Consume login state, redeem the code, and verify both login and resource
+        identities.
+        """
         async with browser.lock:
+            # Consume before redemption: a failed exchange must not make the code/state replayable.
             attempt = self.consume(browser, state)
             response = await self.oauth.authorization_code(
                 code, attempt.verifier, self.origin + "/auth/callback"
@@ -110,6 +135,9 @@ class WorkspaceAuth:
             return self.credentials(response, principal, attempt.nonce)
 
     def credentials(self, response, principal, nonce, old_refresh=None):
+        """Build server-held secret credentials from verified token response and identity
+        claims.
+        """
         expiry = principal.expires_at
         if response.expires_in is not None:
             expiry = min(expiry, time.time() + response.expires_in)
@@ -122,6 +150,11 @@ class WorkspaceAuth:
         )
 
     async def validate_identity(self, token, access, nonce, *, initial):
+        """Verify ID-token signature, audience, nonce, and optional access-token hash.
+
+        Verify the access token independently and require issuer/subject continuity;
+        an ID token alone cannot authorize resource tools.
+        """
         try:
             metadata = await self.oauth.metadata()
             response = await self.http.get(self.oauth.validate_endpoint(metadata["jwks_uri"]))
@@ -175,6 +208,12 @@ class WorkspaceAuth:
             raise SecurityError("login_invalid") from None
 
     async def admit(self, session):
+        """Serialize refresh and return an identity snapshot with enough lifetime for the
+        run.
+
+        Recheck session state after awaits so sign-out cannot admit new effects. Refresh
+        failures clear usable credentials and require a fresh sign-in.
+        """
         async with session.lock:
             if session.state != "active":
                 raise SecurityError("sign_in_required")

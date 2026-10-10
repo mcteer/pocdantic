@@ -1,4 +1,8 @@
-"""Bounded local assessment; configuration sufficiency is never remote verification."""
+"""Bounded local checks before live execution or evidence collection.
+
+Presence and syntactic validity are reported separately from remote verification.
+The command makes no provider requests and never converts configuration into proof.
+"""
 
 import importlib.util
 import ssl
@@ -16,6 +20,12 @@ from .store import StoreError, decode_json, read_private
 
 
 def ready(suite_label, names=None, *, settings=None):
+    """Assess required local settings, dependencies, profiles, and TLS files for selected
+    live cases.
+
+    Return a sanitized report; external identity, permissions, reachability, and
+    source exports remain explicitly unverified.
+    """
     suite, selection = select_suite(load_catalog(), suite_label, names, "live", True)
     start = time.monotonic()
     invalid_settings = False
@@ -36,6 +46,9 @@ def ready(suite_label, names=None, *, settings=None):
             external=False,
             label=scenario.label,
         ):
+            """Append one bounded readiness check, enforcing the local assessment time
+            budget.
+            """
             if time.monotonic() - start > 2:
                 raise StoreError("scenario_timeout")
             state = (

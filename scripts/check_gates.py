@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+"""CI gate for complete Spec Kit artifacts and valid runtime profiles.
+
+Planning checks report live blockers honestly; they do not execute provider acceptance.
+Run from the repository root through the locked Python environment.
+"""
+
 import argparse
 import json
 import re
@@ -8,6 +14,9 @@ from agent.evidence import load_evidence
 
 
 def check_feature(root: Path):
+    """Require complete planning artifacts, resolved checklists, and valid acceptance
+    records.
+    """
     for file in [
         Path(".specify/memory/constitution.md"),
         *(
@@ -40,6 +49,9 @@ def check_feature(root: Path):
 
 
 def main():
+    """Select explicit or locally active feature gates, or validate runtime profile
+    configuration.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--runtime-only", action="store_true")
     features = parser.add_mutually_exclusive_group()

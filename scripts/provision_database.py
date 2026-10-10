@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Provision and verify the PoC database through the existing Vault instance."""
+"""Explicit administrative provisioning for the synthetic Vault/PostgreSQL fixture.
+
+This script changes live database and Vault configuration using operator credentials.
+It is separate from delegated runtime authorization and is never called by ordinary
+tests. Private connection settings and evidence are saved only under .local/.
+"""
 
 import asyncio
 import json
@@ -42,6 +47,12 @@ ACL = (
 
 
 def target(uri):
+    """Parse the private PostgreSQL URI and constrain supported direct or session-pooler
+    targets.
+
+    Return decoded connection fields only to trusted provisioning code; malformed
+    or unsupported URIs raise a safe error without echoing credentials.
+    """
     try:
         parsed = urlsplit(uri)
         port = parsed.port or 5432
@@ -71,6 +82,12 @@ def target(uri):
 
 
 async def main():
+    """Provision the marked synthetic table and least-privilege Vault role, then verify the
+    flow.
+
+    Refuse an unrelated existing table. Test read/write denial and credential cleanup,
+    revoke the temporary test token, and save private runtime settings and evidence.
+    """
     settings = Settings()
     uri = dotenv_values(".env.local").get("SUPABASE_DB_URI")
     ca = settings.database_sslrootcert

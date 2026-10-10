@@ -1,4 +1,8 @@
-"""The local browser is a distinct, strictly same-origin surface."""
+"""Loopback HTTP, browser-origin, cookie, and CSRF boundary.
+
+The workspace intentionally accepts only its exact local origin and supported
+methods. Body limits and security headers apply before endpoint handlers run.
+"""
 
 import hmac
 import re
@@ -18,6 +22,7 @@ HEADERS = {
 
 
 def check_csrf(actual, expected):
+    """Require a bounded supplied CSRF value to match the context token in constant time."""
     if (
         not isinstance(actual, str)
         or not re.fullmatch(r"[A-Za-z0-9_-]{43}", actual)
@@ -28,6 +33,7 @@ def check_csrf(actual, expected):
 
 
 def cookie_value(raw, name):
+    """Parse exactly one well-formed opaque workspace cookie, rejecting ambiguous values."""
     values = []
     for item in raw.split(";"):
         key, _, value = item.strip().partition("=")
@@ -40,9 +46,16 @@ def cookie_value(raw, name):
 
 class Boundary:
     def __init__(self, app, origin):
+        """Bind middleware to the exact configured loopback origin and host."""
         self.app, self.origin, self.host = app, origin, urlparse(origin).netloc
 
     async def __call__(self, scope, receive, send):
+        """Validate Host, origin, method, and bounded JSON body before forwarding a
+        request.
+
+        The login callback may arrive via cross-origin navigation, but state-changing
+        requests require the exact local Origin and strict content type.
+        """
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
         pairs = scope["headers"]
@@ -80,6 +93,9 @@ class Boundary:
                     break
 
         async def guarded_send(message):
+            """Attach no-store, content, framing, and referrer protections to every HTTP
+            response.
+            """
             if message["type"] == "http.response.start":
                 message = dict(message)
                 message["headers"] = [
@@ -110,6 +126,7 @@ class Boundary:
         used = False
 
         async def buffered_receive():
+            """Replay the already validated bounded request body to the downstream handler."""
             nonlocal used
             if method == "POST" and not used:
                 used = True

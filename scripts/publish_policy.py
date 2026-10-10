@@ -1,4 +1,8 @@
-"""The repository's publishable harness paths. Private working material stays local."""
+"""Narrow allowlist shared by publication checks.
+
+Generated evidence remains private even if placed inside an otherwise allowed tree.
+The historical package path remains eligible only for immutable Git-history checks.
+"""
 
 from pathlib import PurePosixPath
 
@@ -15,6 +19,9 @@ ROOT_FILES = {
 
 
 def generated_private(name: str) -> bool:
+    """Recognize generated validation, source, review, report, and closeout artifacts by
+    name.
+    """
     p = PurePosixPath(name)
     if p.name in {
         "run.json",
@@ -37,6 +44,9 @@ def generated_private(name: str) -> bool:
 
 
 def publishable(name: str) -> bool:
+    """Allow only maintained repository artifacts after excluding generated private
+    evidence.
+    """
     p = PurePosixPath(name)
     if generated_private(name):
         return False

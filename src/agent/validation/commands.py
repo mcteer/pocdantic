@@ -1,4 +1,8 @@
-"""Validation commands construct only sanitized stdout projections."""
+"""CLI dispatch for private validation, evidence import, review, and closeout.
+
+Commands print sanitized summaries while raw evidence remains under private storage.
+Live execution requires explicit suite selection and phone interaction when applicable.
+"""
 
 import asyncio
 import json
@@ -12,6 +16,7 @@ from .store import PrivateStore, StoreError
 
 
 def add_validation_parser(sub):
+    """Register validation subcommands and their bounded, explicit selection arguments."""
     parser = sub.add_parser("validate", help="Bounded security validation and private evidence")
     commands = parser.add_subparsers(dest="validation_command", required=True)
     listing = commands.add_parser("list")
@@ -52,6 +57,11 @@ def add_validation_parser(sub):
 
 
 async def execute_validation(args):
+    """Execute the requested validation operation and return its documented exit code.
+
+    Reject invalid selection before effects; convert store and boundary failures to
+    safe summaries without exposing local credentials or raw source responses.
+    """
     try:
         if args.validation_command == "list":
             catalog = load_catalog()

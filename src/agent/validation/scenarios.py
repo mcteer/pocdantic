@@ -1,4 +1,9 @@
-"""Fixed factories exercise trusted boundaries, never arbitrary catalog code."""
+"""Fixed validation factories exercising trusted runtime and provider boundaries.
+
+Offline scenarios use synthetic identity and transports. Live scenarios require
+verified human credentials and may acquire leases or send phone prompts. Catalog
+labels select this code; they cannot introduce arbitrary executable scenarios.
+"""
 
 import asyncio
 from dataclasses import dataclass, replace
@@ -34,11 +39,21 @@ class EffectResult:
 
 def offline_settings():
     # model_construct bypasses every environment source, including invalid poisoned values.
+    """Construct defaults without reading environment sources, keeping offline cases
+    isolated.
+    """
     return Settings.model_construct()
 
 
 def tool_model(tool, arguments):
+    """Create a deterministic model that calls one named tool and then returns a fixed
+    summary.
+    """
+
     def respond(messages, info):
+        """Call the selected tool once, then emit the synthetic final output after its
+        return.
+        """
         returned = any(isinstance(p, ToolReturnPart) for m in messages for p in m.parts)
         if not returned:
             return ModelResponse(parts=[ToolCallPart(tool, arguments)])
@@ -48,6 +63,12 @@ def tool_model(tool, arguments):
 
 
 async def offline_scenario(label, *, cleanup_timeout=30, runtime_options=None):
+    """Exercise the selected policy, approval, delegation, or cleanup case without live
+    providers.
+
+    Return observed attempt counts and outcomes; synthetic success is software proof
+    only and cannot satisfy live acceptance criteria.
+    """
     options = dict(runtime_options or {})
     settings = options.pop("settings", offline_settings())
     principal = Principal(
@@ -61,6 +82,9 @@ async def offline_scenario(label, *, cleanup_timeout=30, runtime_options=None):
         if label == "injection-denial":
 
             def attack(messages, info):
+                """Attempt a forbidden tool call to test that injected instructions gain no
+                capability.
+                """
                 attempts.append("request_infrastructure_restart")
                 return ModelResponse(parts=[ToolCallPart("request_infrastructure_restart", {})])
 
@@ -152,6 +176,9 @@ async def offline_scenario(label, *, cleanup_timeout=30, runtime_options=None):
         cleanup = "unknown"
 
         def handle(request):
+            """Simulate credential issuance and the selected cleanup response while
+            recording calls.
+            """
             calls.append(request.method)
             if request.method == "GET":
                 return httpx.Response(
@@ -170,6 +197,9 @@ async def offline_scenario(label, *, cleanup_timeout=30, runtime_options=None):
             vault = VaultClient("https://offline.invalid", "", http)
 
             async def operation():
+                """Acquire mock credentials and optionally wait for cancellation inside the
+                lease context.
+                """
                 async with vault.credentials(
                     SecretStr("synthetic"), "database/creds/read", cleanup_timeout=cleanup_timeout
                 ):
@@ -197,6 +227,7 @@ async def offline_scenario(label, *, cleanup_timeout=30, runtime_options=None):
 
 
 def live_preflight(s, label):
+    """Use local readiness to block incomplete configuration before a live scenario starts."""
     from .readiness import ready
 
     suite = (
@@ -211,6 +242,11 @@ def live_preflight(s, label):
 
 async def live_scenario(label, *, settings=None, cleanup_timeout=30, runtime_options=None):
     # Preflight never substitutes synthetic adapters or administrative authority.
+    """Execute one selected live case after verifying the human identity.
+
+    Record actual attempts and precise phone decisions; do not substitute an offline
+    fixture or administrative token when live prerequisites fail.
+    """
     s = settings or Settings()
     missing = live_preflight(s, label)
     if missing:
@@ -376,6 +412,12 @@ async def actor_only_probe(settings, principal, *, cleanup_timeout=30, http=None
         vault = VaultClient(s.vault_addr, s.vault_namespace, client, operation_observer=observer)
 
         async def cleanup(lease_id):
+            """Use verified human-plus-actor delegation to clean an unexpectedly issued
+            lease.
+
+            Reject unrelated lease handles; administrative cleanup credentials are never
+            used.
+            """
             nonlocal revoked, acquired
             acquired = True
             prefix = s.vault_read_path + "/"

@@ -1,4 +1,9 @@
-"""Explicit, immutable private snapshots; no effects and no new acceptance authority."""
+"""Immutable aggregation of the four required live validation cases.
+
+Closeout checks source linkage, execution context, cleanup, telemetry receipt, and
+review separately. Inspecting a snapshot detects drift without rerunning effects or
+rewriting the original result; unsupported acceptance remains blocked.
+"""
 
 import time
 
@@ -26,15 +31,22 @@ from .store import StoreError
 
 
 def outcome(values):
+    """Combine outcomes with interruption, failure, and blocked taking precedence over
+    pass.
+    """
     return next((v for v in ("interrupted", "fail", "blocked") if v in values), "pass")
 
 
 def check_deadline(deadline):
+    """Reject work after the bounded closeout computation deadline."""
     if time.monotonic() > deadline:
         raise StoreError("suite_timeout")
 
 
 def collect(writer):
+    """Rebuild selected live runs and verify context and input inventories without
+    replaying effects.
+    """
     run = ValidationRun.model_validate(writer.read_json("run.json"))
     if (
         run.validation_id.hex != writer.path.name.replace("-", "")
@@ -88,6 +100,7 @@ def collect(writer):
 
 
 def case_evidence(data, observation):
+    """Project the required native cleanup, telemetry, and phone proof for one live case."""
     report = data["report"]
     bindings = data["bindings"]
     reasons = []
@@ -140,6 +153,12 @@ def case_evidence(data, observation):
 
 
 def assemble_closeout(items):
+    """Aggregate exactly one run per required live case and detect conflicting contexts or
+    reuse.
+
+    Keep operational results, source evidence, and reviewed acceptance separate;
+    missing or unsupported proof remains explicit.
+    """
     contexts = {d["context"].digest for d in items.values() if d["context"]}
     global_reasons = []
     if len(contexts) > 1:
@@ -277,6 +296,9 @@ def assemble_closeout(items):
 
 
 def markdown(snapshot):
+    """Render a sanitized closeout projection without private source fields or reviewer
+    prose.
+    """
     lines = [
         "# Live closeout",
         "",
@@ -326,6 +348,12 @@ def markdown(snapshot):
 
 
 def create_closeout(store, run_ids):
+    """Lock member runs, recheck their inventories, and persist an immutable closeout
+    snapshot.
+
+    Publish the JSON manifest last so a partially written directory is not mistaken
+    for a completed closeout.
+    """
     deadline = time.monotonic() + 30
     with store.open_many(run_ids) as writers:
         items = {}
@@ -358,6 +386,11 @@ def create_closeout(store, run_ids):
 
 
 def inspect_closeout(store, snapshot_id):
+    """Verify a stored closeout and its members against current bytes and implementation.
+
+    Report stale or changed evidence without modifying the snapshot or rerunning
+    any provider operation.
+    """
     deadline = time.monotonic() + 30
     with store.open_closeout(snapshot_id) as output:
         snapshot = CloseoutSnapshot.model_validate(output.read_json("closeout.json"))

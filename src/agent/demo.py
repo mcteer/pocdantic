@@ -1,3 +1,8 @@
+"""Deterministic model fixture for the offline delegation demonstration.
+
+Responses call the configured synthetic ticket tools; no external model is used.
+"""
+
 from pydantic_ai.messages import ModelResponse, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.function import FunctionModel
 
@@ -6,6 +11,9 @@ def model() -> FunctionModel:
     """Deterministic tool arguments; fixtures never rely on schema random generation."""
 
     def respond(messages, info):
+        """Choose the next synthetic tool call from prior returns, then emit a fixed
+        summary.
+        """
         returned = any(
             isinstance(part, ToolReturnPart) for message in messages for part in message.parts
         )

@@ -1,3 +1,9 @@
+"""Trusted Vault HTTP adapter and short-lived PostgreSQL credential lifecycle.
+
+Lease handles and passwords stay private. Cleanup is attempted even when credential
+parsing or the database operation fails; an acknowledged revoke is not backend proof.
+"""
+
 import asyncio
 import re
 from collections.abc import Awaitable, Callable
@@ -11,6 +17,7 @@ from .security import SecurityError
 
 
 def validate_path(path: str) -> str:
+    """Reject traversal, query syntax, or unsupported characters in a relative Vault path."""
     if not re.fullmatch(r"[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*", path):
         raise SecurityError("vault_path_invalid")
     return path
@@ -27,6 +34,9 @@ class VaultClient:
     def __init__(
         self, address: str, namespace: str, http: httpx.AsyncClient, *, operation_observer=None
     ):
+        """Bind the provider address, namespace, HTTP client, and optional private
+        observer.
+        """
         url = urlparse(address)
         if url.scheme != "https" or not url.hostname or url.username or url.password:
             raise SecurityError("vault_https_required")
@@ -36,6 +46,12 @@ class VaultClient:
     async def request(
         self, method: str, path: str, token: SecretStr | None = None, body: dict | None = None
     ) -> dict:
+        """Make a validated Vault request with private token and optional correlation
+        metadata.
+
+        Persist operation bindings before observed effects, limit response size, and
+        map HTTP/parsing failures to safe codes without returning raw diagnostics.
+        """
         validate_path(path)
         headers = {"X-Vault-Namespace": self.namespace} if self.namespace else {}
         if token:
@@ -92,6 +108,7 @@ class VaultClient:
             raise SecurityError("vault_request_failed") from None
 
     async def read(self, token: SecretStr, path: str) -> dict:
+        """Fetch a relative Vault path using the caller’s explicitly supplied token."""
         return await self.request("GET", path, token)
 
     async def workload_login(self, mount: str, role: str, jwt: SecretStr) -> dict:
@@ -103,6 +120,11 @@ class VaultClient:
         )
 
     async def revoke(self, token: SecretStr, lease_id: str) -> None:
+        """Submit a lease revocation request and check the provider acknowledgement.
+
+        This endpoint can acknowledge queued revocation; callers needing independent
+        cleanup proof must obtain native evidence separately.
+        """
         await self.request("PUT", "sys/leases/revoke", token, {"lease_id": lease_id})
 
     @asynccontextmanager
@@ -115,6 +137,12 @@ class VaultClient:
         cleanup_timeout: float = 30,
         cleanup_drain_timeout: float = 5,
     ):
+        """Yield parsed short-lived credentials and arrange bounded cleanup on every exit.
+
+        Capture the lease handle before parsing fields so malformed credentials can
+        still be revoked. Shield cleanup from caller cancellation; report uncertain
+        issuance or failed cleanup instead of claiming success.
+        """
         if not path.startswith("database/creds/"):
             raise SecurityError("vault_credential_path")
         try:
@@ -154,6 +182,8 @@ class VaultClient:
                 revoke(lease_id) if revoke else self.revoke(token, lease_id)
             )
             deadline = asyncio.get_running_loop().time() + cleanup_timeout
+            # Cancellation is deferred until cleanup stops; abandoning its task would lose
+            # the client/token needed for revocation while leaving issuance unresolved.
             interrupted = False
             timed_out = False
             while not cleanup.done():
@@ -167,6 +197,8 @@ class VaultClient:
                     if observer:
                         observer.fact("cleanup_unknown")
                     # No further admission; retaining this frame retains private cleanup context.
+                    # A timeout cannot kill a cancellation-resistant coroutine. Retain this
+                    # frame and quarantine admission until it actually exits.
                     remaining = 1
                 try:
                     await asyncio.wait_for(asyncio.shield(cleanup), remaining)

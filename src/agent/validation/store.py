@@ -1,4 +1,9 @@
-"""Owner-only bounded storage. No automatic retention or source fetching."""
+"""Bounded private storage for immutable validation artifacts and journals.
+
+Directory permissions, symlink rejection, descriptor-based I/O, quotas, and locks
+protect evidence from accidental exposure or overwrite. Reports are derived views;
+raw source records and native credential handles belong only in this store.
+"""
 
 import fcntl
 import hashlib
@@ -23,14 +28,24 @@ MAX_EVENT = 64 * 1024
 
 class StoreError(ValueError):
     def __init__(self, code="storage_error"):
+        """Represent a storage failure using the caller's safe code, not filesystem details.
+
+        Callers must supply a supported code; this constructor does not validate it.
+        """
         super().__init__(code)
 
 
 def decode_json(raw: bytes):
+    """Decode bounded strict JSON, rejecting duplicate keys, excessive depth, and nonfinite
+    values.
+    """
     if len(raw) > MAX_ARTIFACT:
         raise StoreError("limits_exceeded")
 
     def pairs(items):
+        """Build each object while rejecting duplicate keys instead of silently taking the
+        last value.
+        """
         result = {}
         for key, value in items:
             if key in result:
@@ -39,6 +54,7 @@ def decode_json(raw: bytes):
         return result
 
     def invalid(_):
+        """Reject nonstandard numeric constants such as NaN and Infinity."""
         raise StoreError("schema_invalid")
 
     try:
@@ -58,17 +74,22 @@ def decode_json(raw: bytes):
 
 
 def no_symlinks(path: Path):
+    """Reject symlinks in the selected path and its ancestors."""
     for part in (path, *path.parents):
         if part.is_symlink():
             raise StoreError()
 
 
 def project_root() -> Path:
+    """Resolve the repository root used to anchor private validation storage."""
     result = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
     return Path(result.stdout.strip()) if result.returncode == 0 else Path.cwd()
 
 
 def private_dirs(path: Path, boundary: Path):
+    """Create private directories beneath the allowed boundary and reject unsafe ownership
+    or links.
+    """
     no_symlinks(path)
     missing = []
     current = path
@@ -86,12 +107,16 @@ def private_dirs(path: Path, boundary: Path):
 
 
 def safe_name(name):
+    """Require a simple bounded artifact filename without traversal or path separators."""
     if not isinstance(name, str) or not name or name in {".", ".."} or Path(name).name != name:
         raise StoreError()
     return name
 
 
 def read_private(path: Path) -> bytes:
+    """Read a bounded regular file using a no-follow descriptor, rejecting unsafe file
+    types.
+    """
     no_symlinks(path)
     try:
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
@@ -107,8 +132,11 @@ def read_private(path: Path) -> bytes:
 
 
 def synchronized(method):
+    """Wrap a writer method in its shared reentrant lock."""
+
     @wraps(method)
     def locked(self, *args, **kwargs):
+        """Hold the writer lock while the wrapped storage operation completes."""
         with self.mutex:
             return method(self, *args, **kwargs)
 
@@ -117,6 +145,7 @@ def synchronized(method):
 
 class RunWriter:
     def __init__(self, path):
+        """Bind bounded storage operations to one private run directory."""
         self.path = path
         self.mutex = threading.RLock()
         self.journal_counts = {}
@@ -134,14 +163,19 @@ class RunWriter:
             raise StoreError() from None
 
     def __enter__(self):
+        """Return the writer whose directory descriptor and file lock were acquired at
+        construction.
+        """
         return self
 
     def __exit__(self, *_):
+        """Release descriptors and locks even when a storage operation raised."""
         fcntl.flock(self.lock_fd, fcntl.LOCK_UN)
         os.close(self.lock_fd)
         os.close(self.dir_fd)
 
     def _quota(self, added, name=None):
+        """Reject writes that would exceed file, byte, or run-level storage limits."""
         files = [p for p in self.path.iterdir() if p.name != ".lock"]
         if any(p.is_symlink() or not p.is_file() for p in files):
             raise StoreError()
@@ -156,6 +190,12 @@ class RunWriter:
 
     @synchronized
     def write_bytes(self, name, raw, *, replace=False):
+        """Atomically persist bounded bytes, refusing overwrite unless explicitly
+        requested.
+
+        Temporary files are synced before publication so immutable artifacts are not
+        visible as partially written content.
+        """
         safe_name(name)
         target = self.path / name
         no_symlinks(target)
@@ -197,19 +237,25 @@ class RunWriter:
 
     @synchronized
     def write_json(self, name, value, *, replace=False):
+        """Serialize a contract canonically and persist it through the bounded byte writer."""
         return self.write_bytes(name, canonical(value), replace=replace)
 
     @synchronized
     def read_bytes(self, name):
+        """Read a named bounded artifact relative to the locked run directory."""
         safe_name(name)
         return read_private(self.path / name)
 
     @synchronized
     def read_json(self, name):
+        """Decode a private artifact with the strict bounded JSON parser."""
         return decode_json(self.read_bytes(name))
 
     @synchronized
     def inventory(self):
+        """Hash durable input files, excluding transient locks and derived report
+        artifacts.
+        """
         entries = [p for p in self.path.iterdir() if p.name != ".lock"]
         if (
             len(entries) > MAX_ARTIFACTS
@@ -225,6 +271,7 @@ class RunWriter:
 
     @synchronized
     def append_event(self, value, name="events.jsonl"):
+        """Append and sync a bounded JSONL event to the selected private journal."""
         safe_name(name)
         raw = canonical(value) + b"\n"
         if len(raw) > MAX_EVENT:
@@ -255,6 +302,9 @@ class RunWriter:
 
 class PrivateStore:
     def __init__(self, root=None, *, project=None):
+        """Prepare a private, Git-ignored validation root beneath the project’s .local
+        directory.
+        """
         self.project = Path(project or project_root()).absolute()
         candidate = Path(root or self.project / ".local/validation").absolute()
         no_symlinks(candidate)
@@ -276,6 +326,7 @@ class PrivateStore:
         self.root = candidate
 
     def create(self, run_id: UUID):
+        """Create a new private validation directory and return its locking writer."""
         path = self.root / str(UUID(str(run_id)))
         try:
             path.mkdir(mode=0o700)
@@ -284,6 +335,9 @@ class PrivateStore:
         return RunWriter(path)
 
     def open(self, run_id: UUID):
+        """Open an existing validation run by its opaque UUID without accepting arbitrary
+        paths.
+        """
         path = self.root / str(UUID(str(run_id)))
         no_symlinks(path)
         if not path.is_dir():
@@ -292,6 +346,7 @@ class PrivateStore:
 
     def definition_ref(self, private_name: str) -> UUID:
         # A separate lock prevents concurrent runs from changing assigned definition IDs.
+        """Return a stable private UUID for a profile or workload definition under a lock."""
         mapping_root = self.root / "definitions"
         private_dirs(mapping_root, self.project)
         with RunWriter(mapping_root) as writer:
@@ -304,6 +359,7 @@ class PrivateStore:
 
     @contextmanager
     def open_many(self, run_ids):
+        """Lock a bounded set of runs in deterministic order to avoid closeout deadlocks."""
         ids = [UUID(str(i)) for i in run_ids]
         if not 1 <= len(ids) <= 4 or len(set(ids)) != len(ids):
             raise StoreError("invalid_selection")
@@ -311,6 +367,7 @@ class PrivateStore:
             yield {i: stack.enter_context(self.open(i)) for i in sorted(ids, key=str)}
 
     def create_closeout(self, snapshot_id):
+        """Create a separate immutable closeout directory with an opaque ID."""
         root = self.root / "closeouts"
         private_dirs(root, self.project)
         path = root / str(UUID(str(snapshot_id)))
@@ -321,6 +378,7 @@ class PrivateStore:
         return RunWriter(path)
 
     def open_closeout(self, snapshot_id):
+        """Open an existing closeout by its opaque ID within the private boundary."""
         path = self.root / "closeouts" / str(UUID(str(snapshot_id)))
         no_symlinks(path)
         if not path.is_dir():

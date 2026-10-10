@@ -1,4 +1,9 @@
-"""Versioned metadata contracts. No public model accepts arbitrary text."""
+"""Strict versioned contracts for validation and private evidence.
+
+Models constrain identifiers, counts, UTC times, and projections. Source credentials
+and raw provider records are not public report fields. Revision hashes bind evidence
+to definitions and implementation bytes, including documentation changes.
+"""
 
 import hashlib
 import json
@@ -71,11 +76,19 @@ class Reason(StrEnum):
 
 
 def now() -> datetime:
+    """Return an aware UTC timestamp for evidence and lifecycle records."""
     return datetime.now(UTC)
 
 
 def canonical(value) -> bytes:
+    """Serialize supported contract values deterministically for hashing and immutable
+    storage.
+    """
+
     def encode(item):
+        """Convert contract objects, UUIDs, and UTC timestamps to stable JSON-compatible
+        values.
+        """
         if isinstance(item, BaseModel):
             return item.model_dump(mode="json")
         if isinstance(item, UUID):
@@ -95,11 +108,20 @@ def canonical(value) -> bytes:
 
 
 def digest(value) -> str:
+    """Hash canonical contract bytes with SHA-256."""
     return hashlib.sha256(canonical(value)).hexdigest()
 
 
+# Evidence binds source bytes, including docs: old private reports may become stale
+# after a comment-only release and must not be silently rewritten as current proof.
 @lru_cache(maxsize=1)
 def implementation_revision():
+    """Hash maintained implementation files to detect drift from previously recorded
+    evidence.
+
+    The cached revision includes source bytes, so comment changes also make old
+    implementation-bound evidence stale.
+    """
     root = files("agent")
     names = [
         "runtime.py",
@@ -145,6 +167,9 @@ class Contract(BaseModel):
     @field_validator("schema_version", mode="before")
     @classmethod
     def exact_version(cls, value):
+        """Accept only the integer contract version, rejecting coercion and future
+        versions.
+        """
         if type(value) is not int or value != 1:
             raise ValueError("schema_invalid")
         return value
@@ -152,6 +177,7 @@ class Contract(BaseModel):
     @field_validator("*")
     @classmethod
     def utc_only(cls, value):
+        """Require every contract datetime to be aware and expressed in UTC."""
         if isinstance(value, datetime) and (
             value.tzinfo is None or value.utcoffset().total_seconds()
         ):
@@ -175,6 +201,7 @@ class ScenarioDefinition(Contract):
 
     @property
     def revision(self):
+        """Bind the scenario definition to the current implementation revision."""
         return digest({"definition": self, "implementation": implementation_revision()})
 
 
@@ -187,6 +214,7 @@ class SuiteDefinition(Contract):
 
     @property
     def revision(self):
+        """Bind the suite and its scenarios to the current implementation revision."""
         return digest({"definition": self, "implementation": implementation_revision()})
 
 
@@ -209,6 +237,7 @@ class ValidationRun(Contract):
     @field_validator("selected")
     @classmethod
     def unique(cls, value):
+        """Reject repeated selections that would make per-scenario evidence ambiguous."""
         if len(set(value)) != len(value):
             raise ValueError("invalid_selection")
         return value
@@ -321,6 +350,7 @@ class ImportManifest(Contract):
     @field_validator("format_version", mode="before")
     @classmethod
     def exact_format_version(cls, value):
+        """Accept only supported integer source-format versions without coercion."""
         if type(value) is not int or value not in (1, 2):
             raise ValueError("schema_invalid")
         return value
@@ -335,6 +365,7 @@ class ImportManifest(Contract):
 
     @model_validator(mode="after")
     def window(self):
+        """Validate the import time window and format-specific source-routing fields."""
         if self.native_project_id and (self.format_version != 2 or self.source_kind != "logfire"):
             raise ValueError("schema_invalid")
         if self.window_start > self.window_end:
@@ -398,6 +429,9 @@ class CorrelationResult(Contract):
 
     @property
     def outcome(self):
+        """Project matched evidence as pass, contradiction as fail, and other states as
+        blocked.
+        """
         return (
             "pass"
             if self.status == "matched"
@@ -426,6 +460,7 @@ class DeploymentContext(Contract):
 
     @model_validator(mode="after")
     def consistent(self):
+        """Verify the recorded context digest matches its nonsecret fingerprint fields."""
         if digest(self.selectors) != self.digest:
             raise ValueError("digest_mismatch")
         return self
@@ -478,6 +513,7 @@ class ReadinessReport(Contract):
 
     @model_validator(mode="after")
     def consistent(self):
+        """Check that selection, checks, and readiness projections agree."""
         keys = [(c.scenario, c.section, c.check_id) for c in self.checks]
         if len(set(self.selected)) != len(self.selected) or len(keys) != len(set(keys)):
             raise ValueError("schema_invalid")
@@ -492,6 +528,7 @@ class ReadinessReport(Contract):
         return self
 
     def exit_code(self):
+        """Return zero for sufficient local configuration, otherwise the blocked exit code."""
         return 0 if self.execution_ready and self.evidence_ready else 2
 
 
@@ -535,6 +572,7 @@ class CloseoutCriterion(Contract):
     @field_validator("criterion")
     @classmethod
     def known_criterion(cls, value):
+        """Reject acceptance IDs outside the maintained criterion catalog."""
         from ..evidence import CRITERIA
 
         if value not in CRITERIA:
@@ -557,6 +595,7 @@ class CloseoutSnapshot(Contract):
 
     @model_validator(mode="after")
     def exact_projection(self):
+        """Require the fixed live-case mapping and a digest-consistent closeout projection."""
         from ..evidence import CRITERIA
 
         if (
@@ -583,6 +622,7 @@ class CloseoutResult(Contract):
     reason: Reason | None = None
 
     def exit_code(self):
+        """Map interruption, failure, blocked/stale, or pass to the closeout CLI exit code."""
         outcomes = {self.snapshot.operational, self.snapshot.evidence}
         if "interrupted" in outcomes:
             return 130

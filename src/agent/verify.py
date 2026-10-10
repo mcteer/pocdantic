@@ -1,3 +1,9 @@
+"""Verify push transactions bound to an exact approval and action digest.
+
+Only a precise decision for the initiated transaction can satisfy approval. Provider
+errors and ambiguous outcomes remain unconfirmed, and raw responses stay private.
+"""
+
 import asyncio
 import json
 import re
@@ -13,6 +19,7 @@ from .security import SecurityError
 
 
 def identifier(value: str) -> str:
+    """Validate a provider identifier before interpolating it into an API path."""
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", value):
         raise SecurityError("verify_identifier_invalid")
     return value
@@ -24,6 +31,9 @@ class VerifyClient:
     def __init__(
         self, tenant: str, token: SecretStr, http: httpx.AsyncClient, *, operation_observer=None
     ):
+        """Bind a validated tenant URL, API token, HTTP client, and optional private
+        observer.
+        """
         parsed = urlparse(tenant)
         if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
             raise SecurityError("verify_https_required")
@@ -36,6 +46,7 @@ class VerifyClient:
     async def request(
         self, method: str, path: str, *, body: dict | None = None, params: dict | None = None
     ) -> dict:
+        """Call the bounded Verify API with safe errors and private operation bindings."""
         if not re.fullmatch(r"[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*", path):
             raise SecurityError("verify_path_invalid")
         observer = self.operation_observer
@@ -76,6 +87,7 @@ class VerifyClient:
             raise SecurityError("verify_request_failed") from None
 
     def capture_transaction(self, approval, data, approved):
+        """Save raw and normalized transaction evidence only to a supported private sink."""
         self.last_decision = (
             "approved"
             if approved
@@ -96,11 +108,13 @@ class VerifyClient:
                 raise SecurityError("storage_error")
 
     async def authenticators(self) -> dict:
+        """Read enrolled device inventory; this alone proves neither identity nor consent."""
         return await self.request("GET", "v1.0/authenticators")
 
     async def initiate(
         self, authenticator_id: str, factor_id: str, approval: Approval, action: Action
     ) -> str:
+        """Send a phone prompt containing the bound approval ID and exact-action digest."""
         self.approval_context = approval
         data = await self.request(
             "POST",
@@ -143,6 +157,11 @@ class VerifyClient:
         timeout: float = 120,
         poll: float = 2,
     ) -> ApprovalOutcome:
+        """Poll the initiated transaction until a bound terminal decision or deadline.
+
+        Validate transaction ownership and approval binding before recording a decision;
+        ambiguous failures cannot become a denial or an approval.
+        """
         self.approval_context = approval
         deadline = min(approval.expires_at, time.monotonic() + timeout)
         path = (
@@ -203,6 +222,7 @@ class VerifyClient:
     async def wait_for_outcome(
         self, authenticator_id, transaction_id, approval, store, **kwargs
     ) -> ApprovalOutcome:
+        """Return the precise approval outcome, invalidating pending state on interruption."""
         try:
             return await self._wait_for_outcome(
                 authenticator_id, transaction_id, approval, store, **kwargs

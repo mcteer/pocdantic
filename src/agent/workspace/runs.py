@@ -1,4 +1,9 @@
-"""Single-slot execution with session ownership and trusted, bounded projections."""
+"""Single-owner browser jobs, safe approval retry, and cleanup quarantine.
+
+Submission UUIDs make uncertain HTTP delivery idempotent. Jobs belong to one session;
+private identity and approval snapshots never become response fields. Unresolved
+credential cleanup blocks further admission for this process.
+"""
 
 import asyncio
 from dataclasses import dataclass, field
@@ -42,9 +47,13 @@ class Job:
 
 class MemorySink:
     def __init__(self, manager, job):
+        """Initialize bounded in-memory lifecycle counts and private approval candidates
+        for one job.
+        """
         self.manager, self.job = manager, job
 
     def emit(self, event):
+        """Project typed lifecycle events into the public job state and bounded counters."""
         job = self.job
         job.events.append(event)
         del job.events[:-1000]
@@ -60,6 +69,11 @@ class MemorySink:
             job.view.cleanup_status = "revoked" if job.revoked == job.acquired else "pending"
 
     def fact(self, name, **private):
+        """Consume trusted private approval and credential facts without exposing their
+        native fields.
+
+        Preserve uncertainty and exact-action retry candidates for the manager’s checks.
+        """
         job = self.job
         if name == "approval_started":
             approval, action, principal = (
@@ -102,6 +116,9 @@ class MemorySink:
 
     def bind(self, binding):
         # No private bindings are retained by the browser workspace.
+        """Discard native source bindings; browser jobs do not provide durable validation
+        evidence.
+        """
         pass
 
 
@@ -109,6 +126,9 @@ class RunsManager:
     def __init__(
         self, runtime, auth, store, *, database_reader_factory=None, approval_backend=None
     ):
+        """Bind the runtime, auth/session managers, trusted factories, and single-owner
+        state.
+        """
         self.runtime, self.auth, self.store = runtime, auth, store
         self.database_reader_factory = database_reader_factory
         self.backend = approval_backend
@@ -119,15 +139,22 @@ class RunsManager:
 
     @property
     def busy(self):
+        """Report active ownership or unresolved cleanup quarantine, both of which block
+        admission.
+        """
         return self.owner is not None or self.quarantined
 
     def get(self, session, job_id):
+        """Return a job only if it belongs to the requesting session."""
         job = session.jobs.get(job_id)
         if not job:
             raise SecurityError("run_not_found")
         return job
 
     def _duplicate(self, session, key, payload):
+        """Return the prior job for an identical submission, rejecting changed payload
+        under the same UUID.
+        """
         previous = session.submissions.get(key)
         if previous:
             old, job = previous
@@ -136,10 +163,12 @@ class RunsManager:
             return job
 
     def _capacity(self, session):
+        """Reject a session that has reached its bounded job/submission storage capacity."""
         if len(session.jobs) >= 20 or len(session.submissions) >= 20:
             raise SecurityError("capacity_exceeded")
 
     async def submit(self, session, value):
+        """Deduplicate and reserve a task before asynchronous identity admission."""
         payload = ("task", value.task, value.profile)
         duplicate = self._duplicate(session, value.submission_id, payload)
         if duplicate:
@@ -155,6 +184,11 @@ class RunsManager:
         )
 
     async def retry(self, session, parent_id, value):
+        """Admit a fresh approval for one safe, unconfirmed exact action.
+
+        Reject replay after writes, ambiguous candidates, unresolved cleanup, or changed
+        identity. Do not rerun the original model or its earlier tools.
+        """
         parent = self.get(session, parent_id)
         payload = ("retry", parent_id)
         duplicate = self._duplicate(session, value.submission_id, payload)
@@ -188,6 +222,11 @@ class RunsManager:
         )
 
     async def _start(self, session, key, payload, request, *, parent=None, candidate=None):
+        """Reserve job, submission key, and runtime ID before awaiting credentials.
+
+        Single ownership prevents concurrent effects; failed admission unwinds reserved
+        state. A retry snapshot must still match current identity and policy.
+        """
         if self.quarantined:
             raise SecurityError("workspace_unavailable")
         if self.owner is not None:
@@ -239,11 +278,20 @@ class RunsManager:
             raise
 
     async def _execute(self, job, candidate):
+        """Run the admitted task or exact retry and produce a bounded credential-free job
+        view.
+
+        Project precise approval outcomes, truncate results, and quarantine uncertain
+        cleanup. Always invalidate pending approvals and release active ownership.
+        """
         runtime = self.runtime
         sink = MemorySink(self, job)
         runtime.event_sink = sink
 
         async def unavailable(deps, approval, action):
+            """Reject a phone request with a safe configuration error when approval is
+            disabled.
+            """
             raise SecurityError("approval_unavailable")
 
         runtime.approval_backend = self.backend or (
@@ -351,6 +399,9 @@ class RunsManager:
             self.owner = None
 
     def _stage(self, job, stage):
+        """Translate trusted broker lifecycle stages without double-counting acquired
+        leases.
+        """
         if stage == "lease_acquired":
             # Runtime observer records acquisition; this callback handles only errors.
             return
@@ -363,6 +414,7 @@ class RunsManager:
 
     @staticmethod
     def _safe(code):
+        """Map internal failure codes to the closed browser error catalog."""
         from agent.workspace.models import ERRORS
 
         if code in ERRORS:
@@ -376,6 +428,11 @@ class RunsManager:
         return "task_failed"
 
     def close_session(self, session):
+        """Contain session work immediately and return a coroutine that drains admission
+        and execution.
+
+        Credentials and runtime records can be discarded only after this drain finishes.
+        """
         for job in session.jobs.values():
             job.view.retry_available = False
             if job.view.state not in {"completed", "denied", "failed", "interrupted"}:
@@ -384,6 +441,9 @@ class RunsManager:
                 self.runtime.contain_run(job.context.run_id)
 
         async def drain():
+            """Wait for workers and admission ownership to end, then forget reserved
+            runtime state.
+            """
             owned = [j.worker for j in session.jobs.values() if j.worker and not j.worker.done()]
             if owned:
                 await asyncio.gather(*owned, return_exceptions=True)

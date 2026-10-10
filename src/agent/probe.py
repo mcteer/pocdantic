@@ -1,3 +1,9 @@
+"""Explicit live configuration probe with sanitized connectivity summaries.
+
+This command may issue an API token and save a private device inventory. It does
+not provision providers; its summary is not proof of delegated user authorization.
+"""
+
 import httpx
 
 from .oauth import OAuthClient, OAuthConfig
@@ -8,6 +14,9 @@ from .verify import VerifyClient
 
 
 def oauth_config(settings: Settings, *, api: bool = False) -> OAuthConfig:
+    """Select API-client or agent OAuth settings and derive the configured provider
+    endpoints.
+    """
     client_id = settings.verify_api_client_id if api else settings.oauth_client_id
     secret = settings.verify_api_client_secret if api else settings.oauth_client_secret
     if not client_id or not secret:

@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+"""Check built wheel and source archives before distribution.
+
+Require both artifacts, all workspace assets, and no private paths or local credential
+values. This script inspects archives without extracting them into the working tree.
+"""
+
 import tarfile
 import zipfile
 from pathlib import Path

@@ -1,4 +1,8 @@
-"""Explicit immutable local reviews, bound to unchanged evidence rather than free text."""
+"""Explicit immutable reviews bound to an exact evidence revision.
+
+Private reviewer text is never projected into public reports. Review cannot waive
+unsupported criteria or turn synthetic assertions into live vendor acceptance.
+"""
 
 import json
 from datetime import datetime
@@ -21,6 +25,7 @@ class ReviewInput(Contract):
     @field_validator("reviewer", "rationale")
     @classmethod
     def meaningful(cls, value):
+        """Reject blank reviewer or rationale fields even when their length is valid."""
         if not value.strip():
             raise ValueError("schema_invalid")
         return value
@@ -28,6 +33,7 @@ class ReviewInput(Contract):
     @field_validator("references")
     @classmethod
     def unique(cls, value):
+        """Reject duplicate evidence references in one review."""
         if len(set(value)) != len(value):
             raise ValueError("schema_invalid")
         return value
@@ -43,11 +49,13 @@ class ReviewDecision(ReviewInput):
     @field_validator("criterion")
     @classmethod
     def criterion_known(cls, value):
+        """Require the reviewed criterion to exist in the acceptance catalog."""
         if value not in CRITERIA:
             raise ValueError("schema_invalid")
         return value
 
     def public_json(self):
+        """Return only the review ID and applicability status, excluding private prose."""
         return json.dumps({"review_id": str(self.review_id), "status": "applicable"})
 
 
@@ -59,6 +67,9 @@ SUPPORTED = {
 
 
 def eligible(criterion, report, run, artifacts, references, transactions=(), bindings=()):
+    """Check whether the supported criterion has sufficient matching live evidence for
+    review.
+    """
     if criterion == "UC2-02":
         resolved = {t.artifact_id: t for t in transactions}
         return bool(
@@ -136,6 +147,12 @@ def eligible(criterion, report, run, artifacts, references, transactions=(), bin
 
 
 def apply_review_records(writer, report, run, artifacts, bindings, transactions=()):
+    """Apply the latest review per criterion only while its evidence revision remains
+    current.
+
+    Stale or insufficient reviews retain explicit blockers; private rationale stays
+    in the stored review rather than the report projection.
+    """
     records = []
     for path in sorted(writer.path.glob("review-*.json")):
         record = ReviewDecision.model_validate(writer.read_json(path.name))
@@ -188,6 +205,11 @@ def apply_review_records(writer, report, run, artifacts, bindings, transactions=
 
 
 def record_review(writer, criterion, decision, review):
+    """Validate and persist one immutable review under the run lock.
+
+    Rebuild evidence before and immediately before writing so a changed revision
+    cannot receive a review intended for an older snapshot.
+    """
     from .importers import load_artifacts, load_transactions
     from .models import ValidationRun
     from .report import read_bindings, rebuild_report

@@ -1,3 +1,5 @@
 #!/bin/sh
+# Check the index and reachable history before publishing; deleting a secret from
+# the latest tree alone does not remove it from earlier revisions.
 set -eu
 python3 scripts/check_privacy.py --history

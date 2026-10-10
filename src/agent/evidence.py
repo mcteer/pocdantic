@@ -1,3 +1,8 @@
+"""Strict loading of sanitized, explicitly reviewed acceptance records.
+
+Passing a software test does not automatically make vendor acceptance pass.
+"""
+
 import json
 from datetime import datetime
 from pathlib import Path
@@ -26,6 +31,7 @@ class Evidence(BaseModel):
 
     @model_validator(mode="after")
     def validate_pass(self):
+        """Require passing criteria to carry the mandatory review and evidence references."""
         if self.criterion not in CRITERIA:
             raise ValueError("unknown acceptance criterion")
         if self.status in {"pass", "alternative"}:
@@ -40,6 +46,7 @@ class Evidence(BaseModel):
 
 
 def load_evidence(path: str | Path) -> list[Evidence]:
+    """Load acceptance JSON and reject duplicate criterion IDs or invalid pass claims."""
     items = TypeAdapter(list[Evidence]).validate_python(json.loads(Path(path).read_text()))
     if sorted(x.criterion for x in items) != sorted(CRITERIA):
         raise ValueError("exactly one evidence record required for each of 15 criteria")

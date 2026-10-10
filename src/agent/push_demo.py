@@ -1,3 +1,9 @@
+"""Explicit live phone test for a simulated sandbox action.
+
+The selected device supplies a synthetic principal for this isolated possession
+test. It does not authenticate a workspace session or perform an infrastructure change.
+"""
+
 import json
 from datetime import UTC, datetime
 from pathlib import Path

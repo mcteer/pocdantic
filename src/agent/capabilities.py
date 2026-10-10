@@ -1,3 +1,10 @@
+"""Capability factories and deterministic checks around model-requested tools.
+
+Tools receive trusted dependencies, not credentials. Policy, containment, and
+exact-action approval checks sit at effect boundaries, even after model output.
+Registered tool docstrings also describe tools to the model; keep that contract stable.
+"""
+
 import hashlib
 from collections.abc import Awaitable, Callable
 from contextlib import nullcontext
@@ -42,6 +49,7 @@ class Dependencies:
     database_reader: Callable[[int], Awaitable[list[dict]]] | None = field(default=None, repr=False)
 
     def check_containment(self) -> None:
+        """Reject work blocked by run, parent-run, profile, or workload containment."""
         self.containment.check(self.workload_definition, self.run_id)
         self.containment.check(self.logical_agent, self.run_id)
         if self.parent_run_id:
@@ -49,6 +57,11 @@ class Dependencies:
             self.containment.check("parent", self.parent_run_id)
 
     def authorize(self, action: Action) -> None:
+        """Check containment and policy immediately before a capability’s effect.
+
+        Record the allow or denial in bounded audit metadata; denial raises
+        SecurityError.
+        """
         self.check_containment()
         try:
             self.policy.authorize(self.principal, self.policy_role or self.logical_agent, action)
@@ -58,6 +71,9 @@ class Dependencies:
         self.record("policy", "allowed")
 
     def record(self, event: str, outcome: str) -> None:
+        """Record a lifecycle event and audit metadata without copying the task or
+        credentials.
+        """
         if self.observer:
             self.observer.record(event, outcome)
         self.audit.record(
@@ -75,6 +91,7 @@ class Dependencies:
 
 
 def ticket_read() -> Capability[Dependencies]:
+    """Build the authorized synthetic ticket-read tool for a profile."""
     capability = Capability[Dependencies](
         id="ticket-read", description="Read synthetic PoC tickets."
     )
@@ -94,6 +111,9 @@ def ticket_read() -> Capability[Dependencies]:
 
 
 def delegate_tickets() -> Capability[Dependencies]:
+    """Build the delegation tool with a fixed, narrower child agent and shared usage
+    limits.
+    """
     capability = Capability[Dependencies](
         id="delegate-tickets", description="Delegate ticket facts to a restricted child."
     )
@@ -155,6 +175,7 @@ def delegate_tickets() -> Capability[Dependencies]:
 
 
 def simulated_infrastructure() -> Capability[Dependencies]:
+    """Build the exact-action approval tool for a simulated sandbox restart."""
     capability = Capability[Dependencies](
         id="simulated-infrastructure",
         description="Request action-bound approval for a simulated restart.",
@@ -166,6 +187,7 @@ def simulated_infrastructure() -> Capability[Dependencies]:
         action = Action(
             operation="infra.write", resource="sandbox/demo", parameters={"change": "restart"}
         )
+        # Approval can yield a simulated result; no external infrastructure is restarted.
         return await request_simulated_action(ctx.deps, action)
 
     return capability
@@ -237,15 +259,20 @@ class ContainmentCapability(AbstractCapability[Dependencies]):
     id = "containment"
 
     async def before_model_request(self, ctx, request_context):
+        """Recheck containment before allowing another model request."""
         ctx.deps.check_containment()
         return request_context
 
     async def after_output_validate(self, ctx, *, output_context, output):
+        """Reject validated output if containment changed while the model was running."""
         ctx.deps.check_containment()
         return output
 
 
 def database_read() -> Capability[Dependencies]:
+    """Build the record-read tool; actual credential handling remains in the injected
+    broker.
+    """
     capability = Capability[Dependencies](
         id="database-read", description="Read a scoped database record."
     )

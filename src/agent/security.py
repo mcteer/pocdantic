@@ -1,3 +1,9 @@
+"""Deterministic authorization, process-local containment, and metadata-only audit.
+
+These checks constrain tool effects independently of model instructions or output.
+Containment cancels local execution; it does not revoke remote credentials by itself.
+"""
+
 import re
 import time
 from dataclasses import dataclass, field
@@ -19,13 +25,16 @@ class Containment:
     blocked_definitions: set[str] = field(default_factory=set)
 
     def check(self, definition: str, run_id: UUID) -> None:
+        """Raise SecurityError if the run, profile, or workload has been blocked."""
         if run_id in self.blocked_runs or definition in self.blocked_definitions:
             raise SecurityError("contained")
 
     def block_run(self, run_id: UUID) -> None:
+        """Mark one run as blocked so later boundary checks reject it."""
         self.blocked_runs.add(run_id)
 
     def block_definition(self, definition: str) -> None:
+        """Block a profile or workload definition for subsequent boundary checks."""
         self.blocked_definitions.add(definition)
 
 
@@ -36,6 +45,12 @@ class Policy:
     database_resources: frozenset[str] = frozenset({"poc-records"})
 
     def authorize(self, principal: Principal, agent: str, action: Action) -> None:
+        """Require an unexpired principal and allowed scope, role, resource, and
+        parameters.
+
+        Only fixed ticket projects, the sandbox restart, and the bounded database read
+        are supported; arbitrary model-generated actions are denied.
+        """
         if principal.expires_at is not None and principal.expires_at <= time.time():
             raise SecurityError("identity_expired")
         allowed = False
@@ -82,6 +97,9 @@ class Audit:
         principal_ref: str | None = None,
         workload_definition: str | None = None,
     ) -> None:
+        """Append bounded audit metadata using a hashed principal reference, without
+        payload text.
+        """
         self.events.append(
             {
                 "event": event,

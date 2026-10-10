@@ -1,3 +1,9 @@
+"""OAuth token exchange and JWT verification at trusted identity boundaries.
+
+Discovery and token destinations are constrained before HTTP calls. Tokens are
+secret values; callers receive verified claims or safe SecurityError codes.
+"""
+
 import json
 from typing import Literal
 from urllib.parse import urlparse
@@ -23,6 +29,7 @@ class OAuthConfig(BaseModel):
     @field_validator("discovery_url", "token_endpoint", "issuer")
     @classmethod
     def secure_url(cls, value):
+        """Reject configured URLs without HTTPS or with embedded credentials or fragments."""
         if value is not None:
             parsed = urlparse(value)
             if (
@@ -49,10 +56,14 @@ class TokenResponse(BaseModel):
 
 class OAuthClient:
     def __init__(self, config: OAuthConfig, http: httpx.AsyncClient):
+        """Bind OAuth configuration to a caller-owned HTTP client and empty discovery
+        cache.
+        """
         self.config, self.http = config, http
         self._metadata: dict | None = None
 
     def validate_endpoint(self, endpoint: str) -> str:
+        """Require HTTPS on a configured discovery/token/issuer host or explicit trusted host."""
         parsed = urlparse(endpoint)
         roots = [self.config.discovery_url, self.config.token_endpoint, self.config.issuer]
         hosts = self.config.trusted_hosts | frozenset(urlparse(x).hostname for x in roots if x)
@@ -67,6 +78,7 @@ class OAuthClient:
         return endpoint
 
     async def metadata(self) -> dict:
+        """Fetch and cache discovery metadata after checking issuer and endpoint trust."""
         if self._metadata is None:
             if not self.config.discovery_url:
                 raise SecurityError("oauth_discovery_missing")
@@ -84,6 +96,11 @@ class OAuthClient:
         return self._metadata
 
     async def _token(self, data: dict[str, str]) -> TokenResponse:
+        """Send a bounded token request using the configured client-authentication method.
+
+        Validate the response and bearer token type; hide raw HTTP and parsing failures
+        behind safe codes. The request may issue a new credential.
+        """
         endpoint = self.config.token_endpoint or (await self.metadata())["token_endpoint"]
         auth = None
         data = dict(data)
@@ -113,6 +130,7 @@ class OAuthClient:
             raise SecurityError("oauth_request_failed") from None
 
     async def client_credentials(self, scopes: tuple[str, ...] = ()) -> TokenResponse:
+        """Request an actor or API-client token; this does not establish human identity."""
         data = {"grant_type": "client_credentials"}
         if scopes:
             data["scope"] = " ".join(scopes)
@@ -121,6 +139,7 @@ class OAuthClient:
     async def authorization_code(
         self, code: str, verifier: str, redirect_uri: str
     ) -> TokenResponse:
+        """Redeem the one-time login code using its registered redirect and PKCE verifier."""
         return await self._token(
             {
                 "grant_type": "authorization_code",
@@ -131,6 +150,7 @@ class OAuthClient:
         )
 
     async def refresh(self, token: SecretStr) -> TokenResponse:
+        """Request replacement credentials using the session’s private refresh token."""
         return await self._token(
             {"grant_type": "refresh_token", "refresh_token": token.get_secret_value()}
         )
@@ -138,6 +158,9 @@ class OAuthClient:
     async def exchange_details(
         self, subject: SecretStr, actor: SecretStr, details: list[dict], audience: str
     ) -> TokenResponse:
+        """Exchange subject and actor tokens for the supplied resource authorization
+        details.
+        """
         return await self._token(
             {
                 "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
@@ -154,6 +177,7 @@ class OAuthClient:
     async def exchange(
         self, subject: SecretStr, actor: SecretStr, path: str, audience: str
     ) -> TokenResponse:
+        """Request a delegated token limited to reading the specified Vault path."""
         from .vault import validate_path
 
         validate_path(path)
@@ -167,11 +191,18 @@ class OAuthClient:
 
 class JWTVerifier:
     def __init__(self, oauth: OAuthClient, audience: str, *, token_typ: str = "at+jwt"):
+        """Bind verification to an audience and expected access-token type."""
         if not audience:
             raise SecurityError("oauth_audience_missing")
         self.oauth, self.audience, self.token_typ = oauth, audience, token_typ
 
     async def verify_claims(self, token: SecretStr) -> dict:
+        """Verify signature, issuer, audience, token type, and required time claims via
+        JWKS.
+
+        Return claims only after verification; rejected or expired tokens raise safe
+        errors.
+        """
         try:
             metadata = await self.oauth.metadata()
             response = await self.oauth.http.get(self.oauth.validate_endpoint(metadata["jwks_uri"]))
@@ -201,6 +232,9 @@ class JWTVerifier:
             raise SecurityError("identity_invalid") from None
 
     async def verify(self, token: SecretStr) -> Principal:
+        """Derive a Principal from verified user claims, rejecting client-credentials
+        identity.
+        """
         claims = await self.verify_claims(token)
         if claims.get("grant_type") == "client_credentials":
             raise SecurityError("identity_user_required")

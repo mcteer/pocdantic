@@ -1,4 +1,9 @@
-"""Injected telemetry, filtered before SDK storage, with no global configuration."""
+"""Metadata-only tracing with a restrictive export boundary.
+
+Wrappers discard arbitrary text, exception details, and unapproved attributes before
+the SDK receives them. The private OTLP transport uses a fixed validated destination.
+An exporter acknowledgement is tracked separately from server-side receipt evidence.
+"""
 
 import http.client
 import math
@@ -100,6 +105,7 @@ ENUMS = {
 
 
 def safe_attributes(attributes):
+    """Keep only closed labels, generated identifiers, and finite nonnegative counters."""
     result = {}
     for key, value in (attributes or {}).items():
         if key in UUID_ATTRIBUTES and isinstance(value, str):
@@ -137,6 +143,7 @@ SCENARIOS = frozenset(
 
 
 def safe_name(name):
+    """Map known runtime and instrumentation names to bounded span names."""
     if name in SAFE_NAMES:
         return name
     # Native operation classes are preserved, never dynamic tool/agent/model names.
@@ -151,6 +158,7 @@ def safe_name(name):
 
 
 def clean_context(context):
+    """Retain trace linkage while removing trace-state data from the supplied context."""
     if not context.is_valid:
         return context
     return SpanContext(
@@ -160,47 +168,59 @@ def clean_context(context):
 
 class AllowlistSpan(Span):
     def __init__(self, native):
+        """Wrap an SDK span so all later mutations pass the metadata allowlist."""
         self.native = native
         self.safe_metadata = {}
 
     def end(self, end_time=None):
+        """End the underlying span at the optional caller-supplied timestamp."""
         self.native.end(end_time)
 
     def get_span_context(self):
+        """Return trace linkage needed for correlation without exposing span payloads."""
         return self.native.get_span_context()
 
     def set_attributes(self, attributes):
+        """Filter a batch of attributes before passing them to the SDK span."""
         filtered = safe_attributes(attributes)
         self.safe_metadata.update(filtered)
         self.native.set_attributes(filtered)
 
     def set_attribute(self, key, value):
+        """Apply the same metadata filter to a single attribute mutation."""
         self.set_attributes({key: value})
 
     def add_event(self, name, attributes=None, timestamp=None):
+        """Record only a bounded event name and allowed metadata."""
         if name in SAFE_NAMES:
             self.native.add_event(name, safe_attributes(attributes), timestamp)
 
     def add_link(self, context, attributes=None):
+        """Add trace linkage with sanitized context and link attributes."""
         self.native.add_link(clean_context(context), safe_attributes(attributes))
 
     def update_name(self, name):
+        """Normalize a replacement span name through the closed naming policy."""
         self.native.update_name(safe_name(name))
 
     def is_recording(self):
+        """Expose whether the underlying span is recording metadata."""
         return self.native.is_recording()
 
     def set_status(self, status, description=None):
+        """Set the status code while discarding free-text status descriptions."""
         code = status.status_code if isinstance(status, Status) else status
         self.native.set_status(Status(code))
 
     def record_exception(self, exception, attributes=None, timestamp=None, escaped=False):
+        """Record a fixed failure code instead of exception messages or stack traces."""
         self.native.add_event("run", {"reason": Reason.agent_run_failed.value}, timestamp)
         self.native.set_status(Status(StatusCode.ERROR))
 
 
 class AllowlistTracer(Tracer):
     def __init__(self, native):
+        """Wrap an SDK tracer with the metadata boundary shared by every new span."""
         self.native = native
 
     def start_span(
@@ -214,6 +234,11 @@ class AllowlistTracer(Tracer):
         record_exception=True,
         set_status_on_exception=True,
     ):
+        """Start an internal span with filtered attributes, context, and links.
+
+        Only allowed correlation metadata is inherited; automatic exception recording
+        is disabled to prevent raw provider or task text entering traces.
+        """
         parent = get_current_span(context)
         inherited = parent.safe_metadata if isinstance(parent, AllowlistSpan) else {}
         filtered = safe_attributes(attributes)
@@ -256,6 +281,10 @@ class AllowlistTracer(Tracer):
         set_status_on_exception=True,
         end_on_exit=True,
     ):
+        """Activate a filtered span and safely mark errors before propagating them.
+
+        The original exception remains local; its text is not recorded by the SDK.
+        """
         span = self.start_span(name, context, kind, attributes, links, start_time)
         with use_span(
             span, end_on_exit=end_on_exit, record_exception=False, set_status_on_exception=False
@@ -270,6 +299,7 @@ class AllowlistTracer(Tracer):
 
 class AllowlistProvider(TracerProvider):
     def __init__(self, native):
+        """Wrap the injected tracer provider without configuring a global provider."""
         self.native = native
 
     def get_tracer(
@@ -279,10 +309,12 @@ class AllowlistProvider(TracerProvider):
         schema_url=None,
         attributes=None,
     ):
+        """Return a filtered tracer under the fixed service instrumentation identity."""
         return AllowlistTracer(self.native.get_tracer("agent", "1"))
 
 
 def validate_base_url(value):
+    """Require a clean HTTPS telemetry base URL without credentials, query, or fragment."""
     url = urlsplit(value)
     if (
         url.scheme != "https"
@@ -316,12 +348,18 @@ class SafeOTLPSession:
     """
 
     def __init__(self, endpoint, token, *, transport=None):
+        """Bind a fixed OTLP endpoint, private authorization header, and bounded timeout."""
         self.endpoint = validate_base_url(endpoint)
         self.headers = {"Authorization": token}
         self.transport = transport
         self.acknowledged = False
 
     def post(self, url, data, timeout=5, **ignored):
+        """Send span bytes to the fixed endpoint using verified TLS and a bounded response.
+
+        Do not inherit proxy/client-certificate settings or follow redirects. Only a
+        valid successful OTLP response with no rejected spans counts as acknowledgement.
+        """
         self.acknowledged = False
         if url != self.endpoint:
             return SafeReply(False, 400)
@@ -372,6 +410,7 @@ class SafeOTLPSession:
             return SafeReply(False, 400)
 
     def close(self):
+        """Close an injected transport if one was supplied for this private session."""
         if self.transport is not None:
             self.transport.close()
 
@@ -386,10 +425,18 @@ class Delivery:
 
 
 def tracked_exporter(delegate, delivery, session=None, private_sink=None, source_instance=None):
+    """Wrap an exporter to track attempted and acknowledged span IDs plus private bindings."""
     from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
 
     class TrackedExporter(SpanExporter):
         def export(self, spans):
+            """Record export intent before delivery and acknowledge only verified transport
+            success.
+
+            Storage or exporter failures return an SDK failure; acknowledgement alone
+            does
+            not prove spans are queryable in the destination project.
+            """
             ids = {(f"{s.context.trace_id:032x}", f"{s.context.span_id:016x}") for s in spans}
             for span in spans:
                 key = (f"{span.context.trace_id:032x}", f"{span.context.span_id:016x}")
@@ -442,9 +489,11 @@ def tracked_exporter(delegate, delivery, session=None, private_sink=None, source
             return result
 
         def shutdown(self):
+            """Forward shutdown to the underlying exporter."""
             delegate.shutdown()
 
         def force_flush(self, timeout_millis=5000):
+            """Forward the bounded flush request to the underlying exporter."""
             return delegate.force_flush(timeout_millis)
 
     return TrackedExporter()
@@ -458,6 +507,7 @@ class Telemetry:
     delivery: Delivery = field(default_factory=Delivery)
 
     def flush(self):
+        """Flush pending metadata within the bounded deadline and return delivery success."""
         if self.sdk is None:
             return True
         try:
@@ -470,11 +520,18 @@ class Telemetry:
             return False
 
     def shutdown(self):
+        """Shut down the owned SDK provider when telemetry is configured."""
         if self.sdk is not None:
             self.sdk.shutdown()
 
 
 def configure_telemetry(settings: Settings, *, exporter=None, private_sink=None) -> Telemetry:
+    """Create an isolated metadata-only provider, or a no-op when no exporter is
+    configured.
+
+    Tests can inject a synchronous exporter. Live export uses the validated endpoint
+    and bounded queue; this function does not install global instrumentation.
+    """
     if not settings.logfire_token and exporter is None:
         return Telemetry()
     from opentelemetry.sdk.resources import Resource
@@ -527,6 +584,7 @@ def configure_telemetry(settings: Settings, *, exporter=None, private_sink=None)
 
 
 def safe_instrumentation(telemetry=None) -> Instrumentation:
+    """Configure Pydantic AI instrumentation to exclude model content and binary payloads."""
     telemetry = telemetry or Telemetry()
     return Instrumentation(
         settings=InstrumentationSettings(

@@ -1,4 +1,7 @@
-"""Load only packaged declarative data and registered scenario labels."""
+"""Packaged validation suites constrained to known scenario factories.
+
+Catalog data selects trusted code; it cannot define arbitrary executable scenarios.
+"""
 
 import json
 from importlib.resources import files
@@ -28,6 +31,7 @@ FACTORIES = frozenset(
 
 
 def load_catalog() -> Catalog:
+    """Load strict suite definitions and reject duplicate or unsupported scenario mappings."""
     resource = files("agent.validation").joinpath("default_suites.json")
     # Editable installs expose source files; wheels carry the force-included resource.
     content = (
@@ -51,6 +55,12 @@ def load_catalog() -> Catalog:
 
 
 def select_suite(catalog, label, names, mode, interactive):
+    """Validate suite, scenario selection, mode, and explicit phone-interaction
+    requirements.
+
+    Return the suite and deterministic selected scenarios before any run is stored
+    or any live provider is contacted.
+    """
     suite = next((s for s in catalog.suites if s.label == label), None)
     if suite is None or suite.mode != mode:
         raise ValueError("invalid_selection")

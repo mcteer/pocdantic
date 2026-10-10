@@ -1,4 +1,8 @@
-"""Fixed public projections. Wider acceptance never follows from an offline pass."""
+"""Rebuild sanitized reports from immutable private execution and source evidence.
+
+Execution seals detect edited inputs. Correlation and explicit review remain distinct
+from software assertions; unsupported vendor criteria are not automatically passed.
+"""
 
 from typing import Literal
 from uuid import UUID
@@ -62,6 +66,7 @@ class ValidationReport(Contract):
 
     @model_validator(mode="after")
     def projections(self):
+        """Require unique complete projections and consistent summary counts."""
         if (
             len(self.scenarios) != self.selected
             or self.terminal != self.selected
@@ -72,6 +77,10 @@ class ValidationReport(Contract):
         return self
 
     def exit_code(self, *, operational=False):
+        """Map interruption, failure, and blocking evidence to CLI status.
+
+        Operational mode may ignore evidence-only gaps, never an execution failure.
+        """
         outcomes = {s.outcome for s in self.scenarios}
         if "interrupted" in outcomes or Reason.interrupted in self.blockers:
             return 130
@@ -113,6 +122,9 @@ def assemble(
     evidence_inputs=None,
     acceptance=None,
 ):
+    """Combine scenario assertions and evidence projections with all acceptance criteria
+    explicit.
+    """
     inputs = evidence_inputs or {"run": run, "observations": observations, "mapping_version": 1}
     evidence_revision = digest(inputs)
     criteria = tuple(
@@ -142,6 +154,7 @@ def assemble(
 
 
 def markdown(report):
+    """Render a sanitized human-readable report from the typed projection."""
     lines = [
         "# Validation report",
         "",
@@ -167,6 +180,7 @@ def markdown(report):
 
 
 def persist_report(writer, report):
+    """Write content-addressed report artifacts and update the replaceable latest pointer."""
     for name, raw in [
         (f"report-{report.revision}.json", report.model_dump_json().encode()),
         (f"report-{report.revision}.md", markdown(report)),
@@ -180,6 +194,9 @@ def persist_report(writer, report):
 
 
 def evidence_inputs(writer, run, observations, artifacts, bindings):
+    """Collect implementation and private artifact digests that determine the evidence
+    revision.
+    """
     delivery = (
         writer.read_json("delivery.json")
         if (writer.path / "delivery.json").exists()
@@ -199,6 +216,7 @@ def evidence_inputs(writer, run, observations, artifacts, bindings):
 
 
 def read_bindings(writer):
+    """Load the latest immutable binding stage for each recorded operation."""
     from .models import PrivateOperationBinding
     from .store import decode_json
 
@@ -212,6 +230,7 @@ def read_bindings(writer):
 
 
 def seal_execution(writer):
+    """Hash execution artifacts so later reporting can detect edited run inputs."""
     import hashlib
 
     names = ["run.json", "events.jsonl", "bindings.jsonl", "delivery.json", "context.json"]
@@ -225,6 +244,12 @@ def seal_execution(writer):
 
 
 def rebuild_report(writer, *, apply_reviews=True, persist=True):
+    """Verify sealed execution, imported sources, native correlations, and applicable
+    reviews.
+
+    Recompute from stored evidence without replaying provider effects. Missing, stale,
+    contradictory, or unsupported inputs produce explicit blockers or failures.
+    """
     import hashlib
     from uuid import uuid5
 
