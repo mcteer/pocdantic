@@ -58,6 +58,14 @@ def vault_record(row, manifest):
         if phase == "cleanup"
         else response.get("lease_id")
     )
+    if manifest.format_version == 2 and phase == "credential":
+        secret = response.get("secret") or {}
+        if not isinstance(secret, dict):
+            raise StoreError("schema_invalid")
+        nested = secret.get("lease_id")
+        if lease is not None and nested is not None and lease != nested:
+            raise StoreError("evidence_contradicted")
+        lease = nested if nested is not None else lease
     return NormalizedSourceEvent(
         source_event_id=request["id"],
         source_kind="vault",
@@ -89,9 +97,19 @@ def verify_record(row, manifest):
 
 
 def logfire_record(row, manifest):
-    project = row.get("project_id") or row.get("project_name") or row.get("project")
-    if project is not None and project != manifest.source_instance:
-        raise StoreError("evidence_contradicted")
+    if manifest.format_version == 1:
+        project = row.get("project_id") or row.get("project_name") or row.get("project")
+        if project is not None and project != manifest.source_instance:
+            raise StoreError("evidence_contradicted")
+    else:
+        for field in ("project", "project_name"):
+            if field in row and row[field] != manifest.source_instance:
+                raise StoreError("evidence_contradicted")
+        if "project_id" in row:
+            if not manifest.native_project_id:
+                raise StoreError("source_unsupported")
+            if row["project_id"] != manifest.native_project_id:
+                raise StoreError("evidence_contradicted")
     attributes = row.get("attributes") or {}
     if not isinstance(attributes, dict):
         raise StoreError("schema_invalid")
@@ -112,6 +130,27 @@ def logfire_record(row, manifest):
     )
 
 
+def validate_columns(columns, rows, type_key):
+    if not isinstance(columns, list) or not columns or not isinstance(rows, list):
+        raise StoreError("schema_invalid")
+    names = []
+    for column in columns:
+        if (
+            not isinstance(column, dict)
+            or not isinstance(column.get("name"), str)
+            or not column["name"]
+            or not isinstance(column.get(type_key), str)
+            or not column[type_key]
+            or type(column.get("nullable")) is not bool
+        ):
+            raise StoreError("schema_invalid")
+        names.append(column["name"])
+    if len(set(names)) != len(names) or any(
+        not isinstance(r, dict) or set(r) != set(names) for r in rows
+    ):
+        raise StoreError("schema_invalid")
+
+
 def normalize(raw, manifest):
     if len(raw) > MAX_ARTIFACT:
         raise StoreError("limits_exceeded")
@@ -124,7 +163,21 @@ def normalize(raw, manifest):
             adapter = verify_record
         else:
             value = decode_json(raw)
-            rows = value["rows"] if isinstance(value, dict) else value
+            if manifest.format_version == 2 and isinstance(value, dict):
+                if "rows" in value and "data" in value:
+                    raise StoreError("source_unsupported")
+                rows = value.get("rows", value.get("data"))
+                if "data" in value:
+                    schema = value.get("schema")
+                    validate_columns(
+                        schema.get("fields") if isinstance(schema, dict) else None,
+                        rows,
+                        "data_type",
+                    )
+                elif "columns" in value:
+                    validate_columns(value["columns"], rows, "datatype")
+            else:
+                rows = value["rows"] if isinstance(value, dict) else value
             adapter = logfire_record
         if not isinstance(rows, list) or not rows:
             raise StoreError("source_unsupported")
@@ -157,6 +210,11 @@ def load_artifacts(writer):
             raise StoreError("digest_mismatch")
         if normalize(raw, artifact.manifest) != artifact.events:
             raise StoreError("digest_mismatch")
+        if artifact.manifest.source_kind == "logfire" and artifact.manifest.format_version == 1:
+            source = decode_json(raw)
+            rows = source["rows"] if isinstance(source, dict) else source
+            if any("project_id" in row for row in rows):
+                raise StoreError("source_unsupported")
         artifacts.append(artifact)
     return artifacts
 
@@ -197,7 +255,23 @@ def load_transactions(writer):
     from .models import TransactionEvidence
 
     values = []
-    for path in sorted(writer.path.glob("transaction-*.json")):
+    paths = sorted(writer.path.glob("transaction-*.json"))
+    if not paths:
+        return values
+    from .models import ScenarioObservation, ValidationRun
+    from .report import read_bindings
+
+    run = ValidationRun.model_validate(writer.read_json("run.json"))
+    observations = {
+        o.observation_id: o
+        for o in (
+            ScenarioObservation.model_validate(writer.read_json(p.name))
+            for p in writer.path.glob("observation-*.json")
+        )
+    }
+    bindings = read_bindings(writer)
+    seen = set()
+    for path in paths:
         value = TransactionEvidence.model_validate(writer.read_json(path.name))
         raw = writer.read_bytes(f"source-{value.artifact_id}.raw")
         if hashlib.sha256(raw).hexdigest() != value.raw_digest:
@@ -221,6 +295,7 @@ def load_transactions(writer):
             "TIMEOUT",
             "VERIFY_FAILED",
             "VERIFY_DENIED",
+            "USER_DENIED",
             "EXPIRED",
         }
         if (
@@ -230,5 +305,41 @@ def load_transactions(writer):
             or not (approved if value.decision == "approved" else denied)
         ):
             raise StoreError("digest_mismatch")
-        values.append(value)
+        key = (value.source_instance, value.native_transaction_id)
+        observation = observations.get(value.observation_id)
+        owned = (
+            observation
+            and observation.validation_id == run.validation_id
+            and observation.scenario in run.selected
+            and observation.run_id == value.run_id
+        )
+        matches = [
+            b
+            for b in bindings
+            if (
+                b.validation_id == value.validation_id == run.validation_id
+                and b.observation_id == value.observation_id
+                and b.run_id == value.run_id
+                and b.source_kind == "verify"
+                and b.source_instance == value.source_instance
+                and b.phase == "approval"
+                and b.native_transaction_id == value.native_transaction_id
+                and b.approval_ref == value.approval_ref
+                and b.action_digest == value.action_digest
+            )
+        ]
+        if not owned or not matches or key in seen:
+            raise StoreError("evidence_contradicted")
+        seen.add(key)
+        precise = (
+            "approved"
+            if approved
+            else "denied"
+            if state in {"DENIED", "VERIFY_DENIED", "USER_DENIED"}
+            else "unverified"
+        )
+        # Legacy non-approval classifications remain readable, but never prove witnessed denial.
+        if value.decision == "unverified" and precise != "unverified":
+            raise StoreError("evidence_contradicted")
+        values.append(value.model_copy(update={"decision": precise}))
     return values

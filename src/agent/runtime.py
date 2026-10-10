@@ -2,8 +2,6 @@ import asyncio
 import json
 import time
 from dataclasses import replace
-from importlib.resources import files
-from pathlib import Path
 from uuid import uuid4
 
 from opentelemetry.context import Context
@@ -23,16 +21,9 @@ from .telemetry import Telemetry, safe_instrumentation
 
 
 def load_definitions(path: str) -> dict[str, AgentDefinition]:
-    profile = Path(path)
-    if path == "config/agents.json" and not profile.is_file():
-        resource = files("agent").joinpath("default_agents.json")
-        content = (
-            resource.read_text()
-            if resource.is_file()
-            else (Path(__file__).parents[2] / "config/agents.json").read_text()
-        )
-    else:
-        content = profile.read_text()
+    from .validation.context import profile_bytes
+
+    content = profile_bytes(path).decode("utf-8")
     definitions = TypeAdapter(list[AgentDefinition]).validate_python(json.loads(content))
     if len({x.id for x in definitions}) != len(definitions):
         raise SecurityError("profile_duplicate")

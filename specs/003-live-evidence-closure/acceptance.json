@@ -1,0 +1,122 @@
+[
+  {
+    "criterion": "UC1-01",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "Feature 003 live source evidence and explicit review pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC1-02",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "Feature 003 live source evidence and explicit review pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC1-03",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "Feature 003 live source evidence and explicit review pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC1-04",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "Feature 003 live source evidence and explicit review pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC1-05",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "Feature 003 live source evidence and explicit review pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC2-01",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "Feature 003 live source evidence and explicit review pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC2-02",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "Feature 003 live source evidence and explicit review pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC2-03",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "Feature 003 live source evidence and explicit review pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC3-01",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "Feature 003 live source evidence and explicit review pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC3-02",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "Feature 003 live source evidence and explicit review pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC3-03",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "Feature 003 live source evidence and explicit review pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC3-04",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "Feature 003 live source evidence and explicit review pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC4-01",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "Feature 003 live source evidence and explicit review pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC4-02",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "Feature 003 live source evidence and explicit review pending",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC4-03",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "Feature 003 live source evidence and explicit review pending",
+    "source": "none",
+    "references": []
+  }
+]

@@ -68,12 +68,13 @@ async def test_mismatched_push_result_denied(mutation):
     assert approval.state == "pending"
 
 
-async def test_denied_push_never_becomes_approved():
+@pytest.mark.parametrize("state", ["DENIED", "VERIFY_DENIED", "USER_DENIED"])
+async def test_denied_push_never_becomes_approved(state):
     store = ApprovalStore()
     approval = store.create("user", uuid4(), action())
     payload = {
         "id": "transaction",
-        "state": "DENIED",
+        "state": state,
         "transactionData": {
             "additionalData": [
                 {"name": "approval_id", "value": str(approval.id)},
@@ -88,3 +89,60 @@ async def test_denied_push_never_becomes_approved():
             "https://verify.example", SecretStr("private-token"), http
         ).wait_for_decision("device", "transaction", approval, store)
     assert approval.state == "denied"
+
+
+async def test_failed_pre_request_binding_prohibits_push():
+    from types import SimpleNamespace
+
+    calls = []
+    observer = SimpleNamespace(validation_id=uuid4(), observation_id=uuid4(), failed=False)
+
+    def begin(**kwargs):
+        assert kwargs["approval_ref"] == approval.id
+        assert kwargs["action_digest"] == approval.digest
+        observer.failed = True
+        return None
+
+    observer.begin_operation = begin
+    approval = ApprovalStore().create("user", uuid4(), action())
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda r: calls.append(r))) as http:
+        client = VerifyClient(
+            "https://verify.example", SecretStr("private-token"), http, operation_observer=observer
+        )
+        with pytest.raises(SecurityError, match="storage_error"):
+            await client.initiate("device", "factor", approval, action())
+    assert calls == []
+
+
+async def test_capture_failure_leaves_approval_pending():
+    from types import SimpleNamespace
+
+    store = ApprovalStore()
+    approval = store.create("user", uuid4(), action())
+    payload = {
+        "id": "transaction",
+        "state": "SUCCESS",
+        "transactionData": {
+            "additionalData": [
+                {"name": "approval_id", "value": str(approval.id)},
+                {"name": "action_digest", "value": approval.digest},
+            ]
+        },
+    }
+    observer = SimpleNamespace(validation_id=uuid4(), observation_id=uuid4(), failed=False)
+    observer.begin_operation = lambda **kwargs: object()
+    observer.finish_operation = lambda *args, **kwargs: None
+
+    def capture(*args):
+        raise OSError("private storage error")
+
+    observer.sink = SimpleNamespace(transaction=capture)
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=payload))
+    ) as http:
+        client = VerifyClient(
+            "https://verify.example", SecretStr("private-token"), http, operation_observer=observer
+        )
+        with pytest.raises(SecurityError, match="storage_error"):
+            await client.wait_for_decision("device", "transaction", approval, store)
+    assert approval.state == "pending"

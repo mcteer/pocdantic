@@ -193,25 +193,16 @@ async def offline_scenario(label, *, cleanup_timeout=30, runtime_options=None):
 
 
 def live_preflight(s, label):
-    import importlib.util
+    from .readiness import ready
 
-    required = [s.bearer_token, s.oauth_audience, s.oauth_client_id, s.oauth_client_secret]
-    if label in {"delegated-database-read", "actor-only-denial"}:
-        required += [s.vault_addr, s.vault_audience, s.database_host, s.database_name]
-        if importlib.util.find_spec("psycopg") is None:
-            required.append(None)
-    else:
-        required += [
-            s.verify_push_enabled,
-            s.verify_tenant_url,
-            s.verify_authenticator_id,
-            s.verify_user_id,
-            s.verify_api_client_id,
-            s.verify_api_client_secret,
-        ]
-    if s.logfire_token and importlib.util.find_spec("logfire") is None:
-        required.append(None)
-    return Reason.prerequisite_missing if not all(required) else None
+    suite = (
+        "live-database"
+        if label in {"delegated-database-read", "actor-only-denial"}
+        else "live-phone"
+    )
+    return (
+        None if ready(suite, [label], settings=s).execution_ready else Reason.prerequisite_missing
+    )
 
 
 async def live_scenario(label, *, settings=None, cleanup_timeout=30, runtime_options=None):
@@ -258,6 +249,7 @@ async def live_scenario(label, *, settings=None, cleanup_timeout=30, runtime_opt
             context=Context(),
             attributes={
                 "validation_id": str(observer.validation_id),
+                "observation_id": str(observer.observation_id),
                 "run_id": str(run_id),
                 "request_id": str(request_id),
             },
@@ -330,10 +322,17 @@ async def live_scenario(label, *, settings=None, cleanup_timeout=30, runtime_opt
     ok = attempted == 1 and (
         writes == 1 if label == "phone-approved" else writes == 0 and response.status == "denied"
     )
+    sink = options.get("event_sink")
+    decision = getattr(sink, "phone_decision", None)
+    if label == "phone-denied" and decision != "denied":
+        ok = False
     return EffectResult(
         "pass" if ok else "fail",
         attempted,
         writes if label == "phone-denied" else 0,
+        reason=Reason.decision_unverified
+        if label == "phone-denied" and decision != "denied"
+        else None,
         request_id=response.request_id,
         run_id=response.run_id,
     )

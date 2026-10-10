@@ -4,8 +4,10 @@ import fcntl
 import hashlib
 import json
 import os
+import stat
 import subprocess
 import threading
+from contextlib import ExitStack, contextmanager
 from functools import wraps
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -92,8 +94,10 @@ def safe_name(name):
 def read_private(path: Path) -> bytes:
     no_symlinks(path)
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         with os.fdopen(fd, "rb") as file:
+            if not stat.S_ISREG(os.fstat(file.fileno()).st_mode):
+                raise StoreError()
             raw = file.read(MAX_ARTIFACT + 1)
         if len(raw) > MAX_ARTIFACT:
             raise StoreError("limits_exceeded")
@@ -205,6 +209,21 @@ class RunWriter:
         return decode_json(self.read_bytes(name))
 
     @synchronized
+    def inventory(self):
+        entries = [p for p in self.path.iterdir() if p.name != ".lock"]
+        if (
+            len(entries) > MAX_ARTIFACTS
+            or any(p.is_symlink() or not p.is_file() for p in entries)
+            or sum(p.stat().st_size for p in entries) > MAX_TOTAL
+        ):
+            raise StoreError("limits_exceeded")
+        return {
+            p.name: hashlib.sha256(self.read_bytes(p.name)).hexdigest()
+            for p in sorted(self.path.iterdir())
+            if p.name != ".lock" and not p.name.endswith(".tmp") and not p.name.startswith("report")
+        }
+
+    @synchronized
     def append_event(self, value, name="events.jsonl"):
         safe_name(name)
         raw = canonical(value) + b"\n"
@@ -282,3 +301,28 @@ class PrivateStore:
                 value[private_name] = str(uuid4())
                 writer.write_json(name, value, replace=True)
             return UUID(value[private_name])
+
+    @contextmanager
+    def open_many(self, run_ids):
+        ids = [UUID(str(i)) for i in run_ids]
+        if not 1 <= len(ids) <= 4 or len(set(ids)) != len(ids):
+            raise StoreError("invalid_selection")
+        with ExitStack() as stack:
+            yield {i: stack.enter_context(self.open(i)) for i in sorted(ids, key=str)}
+
+    def create_closeout(self, snapshot_id):
+        root = self.root / "closeouts"
+        private_dirs(root, self.project)
+        path = root / str(UUID(str(snapshot_id)))
+        try:
+            path.mkdir(mode=0o700)
+        except OSError:
+            raise StoreError() from None
+        return RunWriter(path)
+
+    def open_closeout(self, snapshot_id):
+        path = self.root / "closeouts" / str(UUID(str(snapshot_id)))
+        no_symlinks(path)
+        if not path.is_dir():
+            raise StoreError("evidence_missing")
+        return RunWriter(path)

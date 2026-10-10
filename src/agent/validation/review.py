@@ -58,7 +58,7 @@ SUPPORTED = {
 }
 
 
-def eligible(criterion, report, run, artifacts, references, transactions=()):
+def eligible(criterion, report, run, artifacts, references, transactions=(), bindings=()):
     if criterion == "UC2-02":
         resolved = {t.artifact_id: t for t in transactions}
         return bool(
@@ -67,9 +67,21 @@ def eligible(criterion, report, run, artifacts, references, transactions=()):
             and not report.blockers
             and references
             and all(ref in resolved for ref in references)
+            and len(transactions) == len(references) == 1
             and all(resolved[ref].decision == "approved" for ref in references)
             and all(
-                s.scenario == "phone-approved" and s.outcome == "pass" for s in report.scenarios
+                s.scenario == "phone-approved"
+                and s.outcome == "pass"
+                and len(s.assertions) == 1
+                and all(
+                    a.label == "phone-approved"
+                    and a.outcome == "pass"
+                    and a.strength == "live"
+                    and a.effect_attempts == 1
+                    and a.forbidden_effects == 0
+                    for a in s.assertions
+                )
+                for s in report.scenarios
             )
         )
     rule = SUPPORTED.get(criterion)
@@ -85,6 +97,41 @@ def eligible(criterion, report, run, artifacts, references, transactions=()):
         return False
     sources = {resolved[ref].manifest.source_kind for ref in references}
     matched = {ref for c in report.correlations if c.status == "matched" for ref in c.artifact_refs}
+    relevant = [s for s in report.scenarios if s.scenario == "delegated-database-read"]
+    if len(relevant) != 1 or relevant[0].cleanup != "revoked" or report.delivery != "received":
+        return False
+    operations = [
+        b
+        for b in bindings
+        if b.observation_id == relevant[0].observation_id and b.source_kind == "vault"
+    ]
+    credentials = [b for b in operations if b.phase == "credential" and b.native_lease_id]
+    cleanups = [b for b in operations if b.phase == "cleanup" and b.native_lease_id]
+    if (
+        not credentials
+        or not cleanups
+        or {b.native_lease_id for b in credentials} != {b.native_lease_id for b in cleanups}
+    ):
+        return False
+    by_operation = {c.operation_ref: c for c in report.correlations}
+    if any(
+        b.operation_ref not in by_operation
+        or by_operation[b.operation_ref].status != "matched"
+        or not set(by_operation[b.operation_ref].artifact_refs) & set(references)
+        for b in credentials
+        + cleanups
+        + [
+            b
+            for b in bindings
+            if b.source_kind == "logfire"
+            or (
+                b.source_kind == "vault"
+                and b.phase == "credential"
+                and b.expected_outcome == "denied"
+            )
+        ]
+    ):
+        return False
     return rule[1] <= sources and set(references) <= matched
 
 
@@ -106,7 +153,13 @@ def apply_review_records(writer, report, run, artifacts, bindings, transactions=
             result.append(criterion.model_copy(update={"reason": Reason.review_stale}))
             continue
         if review.decision in {"pass", "alternative"} and not eligible(
-            review.criterion, report, run, artifacts, review.references, transactions
+            review.criterion,
+            report,
+            run,
+            artifacts,
+            review.references,
+            transactions,
+            bindings,
         ):
             result.append(criterion.model_copy(update={"reason": Reason.evidence_missing}))
             continue
@@ -153,7 +206,7 @@ def record_review(writer, criterion, decision, review):
     artifacts = load_artifacts(writer)
     transactions = load_transactions(writer)
     if decision in {"pass", "alternative"} and not eligible(
-        criterion, report, run, artifacts, review.references, transactions
+        criterion, report, run, artifacts, review.references, transactions, read_bindings(writer)
     ):
         raise ValueError("evidence_missing")
     record = ReviewDecision(

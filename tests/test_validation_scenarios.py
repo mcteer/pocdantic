@@ -136,3 +136,39 @@ async def test_repeated_cancel_cannot_skip_cleanup():
         with pytest.raises(asyncio.CancelledError):
             await task
     assert revoked == ["synthetic"]
+
+
+async def test_actor_only_root_span_is_bound_to_observation(monkeypatch):
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    import agent.cli
+    import agent.validation.scenarios as scenarios
+    from agent.settings import Settings
+    from agent.telemetry import configure_telemetry
+
+    async def principal(_):
+        return SimpleNamespace(subject="synthetic-user")
+
+    async def probe(*args, **kwargs):
+        return scenarios.EffectResult("pass", 1)
+
+    monkeypatch.setattr(agent.cli, "authenticated_principal", principal)
+    monkeypatch.setattr(scenarios, "live_preflight", lambda *args: None)
+    monkeypatch.setattr(scenarios, "actor_only_probe", probe)
+    exporter = InMemorySpanExporter()
+    telemetry = configure_telemetry(Settings.model_construct(), exporter=exporter)
+    validation, observation = uuid4(), uuid4()
+    await scenarios.live_scenario(
+        "actor-only-denial",
+        settings=Settings.model_construct(),
+        runtime_options={
+            "telemetry": telemetry,
+            "validation_id": validation,
+            "observation_id": observation,
+        },
+    )
+    spans = exporter.get_finished_spans()
+    assert spans and all(s.attributes.get("observation_id") == str(observation) for s in spans)

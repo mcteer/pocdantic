@@ -1,5 +1,6 @@
 """Validation commands construct only sanitized stdout projections."""
 
+import asyncio
 import json
 from pathlib import Path
 from uuid import UUID
@@ -15,6 +16,9 @@ def add_validation_parser(sub):
     commands = parser.add_subparsers(dest="validation_command", required=True)
     listing = commands.add_parser("list")
     listing.add_argument("--mode", choices=["offline", "live"])
+    readiness = commands.add_parser("ready")
+    readiness.add_argument("--suite", required=True)
+    readiness.add_argument("--scenario", action="append")
     run = commands.add_parser("run")
     run.add_argument("--suite", default="offline-security")
     run.add_argument("--scenario", action="append")
@@ -24,6 +28,11 @@ def add_validation_parser(sub):
     run.add_argument("--scenario-timeout", type=int)
     run.add_argument("--suite-timeout", type=int, default=300)
     run.add_argument("--cleanup-timeout", type=int, default=30)
+    closeout = commands.add_parser("closeout")
+    selector = closeout.add_mutually_exclusive_group(required=True)
+    selector.add_argument("--run", type=UUID, action="append")
+    selector.add_argument("--closeout", type=UUID)
+    closeout.add_argument("--root")
     for name in ("import", "report", "review"):
         command = commands.add_parser(name)
         command.add_argument("--run", type=UUID, required=True)
@@ -59,6 +68,12 @@ async def execute_validation(args):
                 )
             )
             return 0
+        if args.validation_command == "ready":
+            from .readiness import ready
+
+            report = ready(args.suite, args.scenario)
+            print(report.model_dump_json())
+            return report.exit_code()
         if args.validation_command == "run":
             # Selection fails before creating a directory, reading settings or performing preflight.
             select_suite(load_catalog(), args.suite, args.scenario, args.mode, args.interactive)
@@ -83,6 +98,17 @@ async def execute_validation(args):
             )
             print(report.model_dump_json())
             return report.exit_code(operational=True)
+        if args.validation_command == "closeout":
+            from .closeout import create_closeout, inspect_closeout
+
+            store = PrivateStore(args.root)
+            result = (
+                create_closeout(store, args.run)
+                if args.run
+                else inspect_closeout(store, args.closeout)
+            )
+            print(result.model_dump_json())
+            return result.exit_code()
         from .report import rebuild_report
 
         with PrivateStore(args.root).open(args.run) as writer:
@@ -115,6 +141,9 @@ async def execute_validation(args):
                 print(review.public_json())
                 return 0
         return 2
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        print(json.dumps({"status": "interrupted", "reason": "interrupted"}))
+        return 130
     except StoreError as error:
         code = str(error) if str(error) in Reason._value2member_map_ else "storage_error"
         failed = code in {"digest_mismatch", "evidence_contradicted"} or (

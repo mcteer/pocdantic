@@ -56,6 +56,7 @@ async def test_complete_transaction_review_and_tamper_workflow(tmp_path):
     from agent.validation.catalog import load_catalog
     from agent.validation.models import (
         AssertionResult,
+        PrivateOperationBinding,
         ScenarioObservation,
         TransactionEvidence,
         ValidationRun,
@@ -86,6 +87,7 @@ async def test_complete_transaction_review_and_tamper_workflow(tmp_path):
     observation = ScenarioObservation(
         validation_id=run.validation_id,
         scenario="phone-approved",
+        run_id=uuid4(),
         scenario_revision=suite.scenarios[0].revision,
         outcome="pass",
         assertions=(
@@ -98,7 +100,7 @@ async def test_complete_transaction_review_and_tamper_workflow(tmp_path):
     transaction = TransactionEvidence(
         validation_id=run.validation_id,
         observation_id=observation.observation_id,
-        run_id=uuid4(),
+        run_id=observation.run_id,
         source_instance="synthetic",
         native_transaction_id=source["id"],
         approval_ref=source["transactionData"]["additionalData"][0]["value"],
@@ -110,6 +112,20 @@ async def test_complete_transaction_review_and_tamper_workflow(tmp_path):
     with store.create(run.validation_id) as writer:
         writer.write_json("run.json", run)
         writer.write_json(f"observation-{observation.observation_id}.json", observation)
+        writer.append_event(
+            PrivateOperationBinding(
+                validation_id=run.validation_id,
+                observation_id=observation.observation_id,
+                run_id=observation.run_id,
+                source_kind="verify",
+                source_instance="synthetic",
+                phase="approval",
+                native_transaction_id=transaction.native_transaction_id,
+                approval_ref=transaction.approval_ref,
+                action_digest=transaction.action_digest,
+            ),
+            "bindings.jsonl",
+        )
         writer.write_bytes(f"source-{transaction.artifact_id}.raw", raw)
         writer.write_json(f"transaction-{transaction.artifact_id}.json", transaction)
         seal_execution(writer)
@@ -181,8 +197,16 @@ def test_live_fixture_import_receipt_review_and_mapping_drift(tmp_path):
         source_kind="vault",
         source_instance="synthetic-vault",
         native_request_id="synthetic-request",
+        native_lease_id="synthetic-lease",
         started_at=time,
         finished_at=time + timedelta(seconds=1),
+    )
+    cleanup_binding = vault_binding.model_copy(
+        update={
+            "operation_ref": uuid4(),
+            "phase": "cleanup",
+            "native_request_id": "synthetic-cleanup",
+        }
     )
     trace = "a" * 32
     span_ids = ["b" * 16, "c" * 16]
@@ -214,6 +238,19 @@ def test_live_fixture_import_receipt_review_and_mapping_drift(tmp_path):
         }
         for kind in ["request", "response"]
     ]
+    vault_rows[1]["response"] = {"lease_id": "synthetic-lease"}
+    vault_rows += [
+        {
+            "type": kind,
+            "time": time.isoformat(),
+            "request": {
+                "id": "synthetic-cleanup",
+                "path": "sys/leases/revoke",
+                "data": {"lease_id": "synthetic-lease"},
+            },
+        }
+        for kind in ("request", "response")
+    ]
     rows = [
         {
             "project": "synthetic-project",
@@ -229,7 +266,7 @@ def test_live_fixture_import_receipt_review_and_mapping_drift(tmp_path):
     with store.create(run.validation_id) as writer:
         writer.write_json("run.json", run)
         writer.write_json(f"observation-{observation.observation_id}.json", observation)
-        for binding in [vault_binding, *logfire]:
+        for binding in [vault_binding, cleanup_binding, *logfire]:
             writer.append_event(binding, "bindings.jsonl")
         writer.write_json(
             "delivery.json",
@@ -285,3 +322,44 @@ def test_live_fixture_import_receipt_review_and_mapping_drift(tmp_path):
         report = rebuild_report(writer)
         criterion = next(c for c in report.acceptance if c.criterion == "UC1-05")
         assert criterion.status == "blocked" and criterion.reason == "review_stale"
+
+
+def test_unbound_transaction_cannot_qualify(tmp_path):
+    import hashlib
+
+    from agent.validation.importers import load_transactions
+    from agent.validation.models import TransactionEvidence, canonical
+    from agent.validation.store import StoreError
+
+    store = PrivateStore(tmp_path / ".local/validation", project=tmp_path)
+    raw = canonical(
+        {
+            "id": "native",
+            "state": "SUCCESS",
+            "transactionData": {
+                "additionalData": [
+                    {"name": "approval_id", "value": str(uuid4())},
+                    {"name": "action_digest", "value": "a" * 64},
+                ]
+            },
+        }
+    )
+    import json
+
+    source = json.loads(raw)
+    transaction = TransactionEvidence(
+        validation_id=uuid4(),
+        observation_id=uuid4(),
+        run_id=uuid4(),
+        source_instance="private",
+        native_transaction_id="native",
+        approval_ref=source["transactionData"]["additionalData"][0]["value"],
+        action_digest="a" * 64,
+        decision="approved",
+        raw_digest=hashlib.sha256(raw).hexdigest(),
+    )
+    with store.create(uuid4()) as w:
+        w.write_bytes(f"source-{transaction.artifact_id}.raw", raw)
+        w.write_json(f"transaction-{transaction.artifact_id}.json", transaction)
+        with pytest.raises((StoreError, ValueError)):
+            load_transactions(w)

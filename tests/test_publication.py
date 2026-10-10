@@ -11,6 +11,10 @@ SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "check_privacy.py"
     "name",
     [
         "design/private.txt",
+        "config/context.json",
+        "specs/003-feature/closeout.json",
+        "docs/adr/closeout.md",
+        "config/manifest.json",
         ".local/validation/run.json",
         "specs/002-feature/report.json",
         "config/review-00000000-0000-4000-8000-000000000002.json",

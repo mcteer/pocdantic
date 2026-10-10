@@ -273,3 +273,50 @@ or blocked required work, and 0 for successful selected work. `run` evaluates op
 configured export checks; `report` additionally evaluates suite source/receipt requirements.
 Wider customer acceptance is separate. See the [feature quickstart](specs/002-security-validation/quickstart.md)
 and [native import contracts](specs/002-security-validation/contracts/runtime.md).
+
+## Local readiness and closeout
+
+Readiness checks selected live-case configuration without network calls, token verification,
+phone prompts or persisted evidence:
+
+~~~sh
+uv run agent validate ready --suite live-database
+uv run agent validate ready --suite live-phone --scenario phone-approved
+~~~
+
+Execution and evidence readiness are separate. `configured` means local configuration is
+present and structurally valid; external identity, permissions, reachability and manual export
+access remain `unverified`. Readiness never proves that credentials are fresh. A real run
+rechecks local prerequisites and verifies ingress. Phone selection must name exactly one case.
+Readiness has a two-second budget and returns 2 for missing/invalid required configuration.
+
+Import format version 1 remains readable. Version 2 supports Vault's nested
+`response.secret.lease_id` and Logfire arrays, `rows`, or `schema.fields` with `data` row objects.
+Conflicting aliases are rejected. Native project names must match the private manifest's
+`source_instance`; an internal `project_id` requires an explicit `native_project_id` in a
+Logfire v2 manifest. Positional data arrays and guessed project mappings are unsupported.
+No additional environment variables or read tokens are required; export access stays manual.
+
+Create a private immutable closeout from one to four explicit live runs, then inspect it:
+
+~~~sh
+uv run agent validate closeout --run DATABASE_RUN_UUID --run APPROVED_RUN_UUID --run DENIED_RUN_UUID
+uv run agent validate closeout --closeout SNAPSHOT_UUID
+~~~
+
+Closeout contains four fixed case slots, operational and evidence outcomes, and all fifteen
+criteria with each member run's existing review disposition. Missing or duplicate slots block
+closure. It adds no reviews or aggregate customer acceptance. Only native `DENIED`, `VERIFY_DENIED` or `USER_DENIED` proves intentional phone denial; timeout, expiry, cancellation and failure do not.
+Source IDs, deployment selectors and raw exports remain private. JSON stdout and Markdown
+contain opaque references and safe conclusions. Snapshots have a 30-second wall budget and use
+the existing 130/1/2/0 exit precedence; blocked wider customer claims do not change successful
+operational/evidence closure into failure.
+
+Live runs now seal a credential-free deployment context before effects. Different targets,
+profiles or trust configuration block combined evidence; credential rotation does not change
+context. Legacy runs remain reportable, but missing context or trusted approval bindings cannot
+be recreated from current settings. Changed source, code or reviews make an old snapshot stale;
+create a new snapshot explicitly. Inspection never retries effects or deletes evidence.
+
+See the [003 walkthrough](../specs/003-live-evidence-closure/quickstart.md) for the separate
+real database, witnessed phone, source-review and delivery gates.
