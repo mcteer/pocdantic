@@ -44,7 +44,7 @@ def generate_files():
         return
     now = datetime.now(UTC)
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Pocdantic local lab CA")])
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "PoCdantic local lab CA")])
     ca = (
         x509.CertificateBuilder()
         .subject_name(name)

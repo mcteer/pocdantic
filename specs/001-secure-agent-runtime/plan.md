@@ -41,3 +41,20 @@ No local test may promote a live gate. Missing environment facts remain explicit
 Approval backend is an interface; simulated decisions exist only in offline demo/tests.
 Baseline containment is process-local and cannot claim external session/token revocation.
 A SQL allowlist and DB role grants complement Vault RAR; free-form SQL is never a tool argument.
+
+
+## Delegated identity follow-up design
+
+Keep the local chat host and PKCE callback in ignored chat/, outside the published
+harness. Use separate human-client configuration and server-side expiring sessions.
+Extract strict delegated claim validation and keep read/revoke token exchange in the
+trusted broker. VaultClient accepts a trusted revoke callback; malformed lease data and
+cancellation still use it. Existing operator-token provisioning retains its default cleanup.
+
+Threat review: state/host/path/issuer and duplicate parameter validation prevent callback
+substitution; PKCE binds the code to this process; tokens remain in private server memory.
+Host and origin checks plus per-session CSRF protect authenticated mutations.
+Conversation history is host-owned and isolated by user, thread and profile.
+Never trust ID tokens as API tokens or copy provider errors into output. Signed user/actor
+validation occurs before exchange. Parameter-bound cleanup grants cannot revoke other
+leases. No externally denied request falls back to administrative credentials.

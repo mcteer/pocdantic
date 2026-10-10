@@ -80,3 +80,21 @@ Initial write target is a simulated infrastructure action. Deployment issuer rem
 Jira retrieval is synthetic until a target adapter is configured. Tenant-dependent workload mapping,
 Verify push, Vault licensing/registry/RAR, PostgreSQL grants, VIP collectors and remediation are live
 acceptance dependencies, not assumed platform features. No tenant resources are provisioned by default.
+
+
+## Delegated identity follow-up
+
+The local chat host in ignored chat/ uses a separate confidential OIDC client,
+authorization code with S256 PKCE and cookie-bound state, a fixed loopback callback,
+and signed API-audience access-token verification. Tokens and conversation context
+remain in expiring server-side sessions; ID/refresh tokens are ignored. The frontend
+is excluded from Git and distributions. Hosting applications may supply their own
+verified access tokens and user-isolated message history.
+
+Before token exchange, independently verify the user access token and actor access token.
+Reject service credentials in user-only ingress and reject an actor equal to the user.
+Verify returned subject, actor issuer/subject and exact requested authorization details.
+A database-read grant does not authorize cleanup. Obtain a second delegated grant for
+sys/leases/revoke with the exact lease_id as required/allowed parameter; never broaden
+the read token or substitute an operator credential. Cancellation shields this cleanup.
+Failure to acquire cleanup authority prevents a success result; TTL remains the backstop.

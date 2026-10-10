@@ -1,4 +1,4 @@
-# Pocdantic Constitution
+# PoCdantic Constitution
 
 ## Core Principles
 

@@ -1,4 +1,6 @@
 design/
+# Local chat frontend; excluded from the harness repository.
+chat/
 .env
 .env.*
 !.env.example

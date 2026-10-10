@@ -97,7 +97,10 @@ class OAuthClient:
             if response.is_error:
                 raise SecurityError(f"oauth_http_{response.status_code}")
             token = TokenResponse.model_validate(response.json())
-            if token.token_type.lower() != "bearer":
+            if token.token_type.lower() != "bearer" or token.issued_token_type not in {
+                None,
+                "urn:ietf:params:oauth:token-type:access_token",
+            }:
                 raise SecurityError("oauth_token_type")
             return token
         except (httpx.HTTPError, ValueError, TypeError):
@@ -109,12 +112,21 @@ class OAuthClient:
             data["scope"] = " ".join(scopes)
         return await self._token(data)
 
-    async def exchange(
-        self, subject: SecretStr, actor: SecretStr, path: str, audience: str
+    async def authorization_code(
+        self, code: str, verifier: str, redirect_uri: str
     ) -> TokenResponse:
-        from .vault import validate_path
+        return await self._token(
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "code_verifier": verifier,
+                "redirect_uri": redirect_uri,
+            }
+        )
 
-        validate_path(path)
+    async def exchange_details(
+        self, subject: SecretStr, actor: SecretStr, details: list[dict], audience: str
+    ) -> TokenResponse:
         return await self._token(
             {
                 "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
@@ -124,10 +136,21 @@ class OAuthClient:
                 "actor_token_type": "urn:ietf:params:oauth:token-type:access_token",
                 "requested_token_type": "urn:ietf:params:oauth:token-type:access_token",
                 "audience": audience,
-                "authorization_details": json.dumps(
-                    [{"type": "vault:path_access", "path": path, "capabilities": ["read"]}]
-                ),
+                "authorization_details": json.dumps(details),
             }
+        )
+
+    async def exchange(
+        self, subject: SecretStr, actor: SecretStr, path: str, audience: str
+    ) -> TokenResponse:
+        from .vault import validate_path
+
+        validate_path(path)
+        return await self.exchange_details(
+            subject,
+            actor,
+            [{"type": "vault:path_access", "path": path, "capabilities": ["read"]}],
+            audience,
         )
 
 
@@ -166,6 +189,8 @@ class JWTVerifier:
 
     async def verify(self, token: SecretStr) -> Principal:
         claims = await self.verify_claims(token)
+        if claims.get("grant_type") == "client_credentials":
+            raise SecurityError("identity_user_required")
         return Principal(
             issuer=claims["iss"],
             subject=claims["sub"],

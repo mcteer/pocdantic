@@ -1,5 +1,6 @@
 import asyncio
 import re
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from urllib.parse import urlparse
 
@@ -61,7 +62,13 @@ class VaultClient:
         await self.request("PUT", "sys/leases/revoke", token, {"lease_id": lease_id})
 
     @asynccontextmanager
-    async def credentials(self, token: SecretStr, path: str):
+    async def credentials(
+        self,
+        token: SecretStr,
+        path: str,
+        *,
+        revoke: Callable[[str], Awaitable[None]] | None = None,
+    ):
         if not path.startswith("database/creds/"):
             raise SecurityError("vault_credential_path")
         result = await self.read(token, path)
@@ -82,7 +89,9 @@ class VaultClient:
             yield lease
         finally:
             # Cancellation cannot drop cleanup; HTTP client remains open until completion.
-            cleanup = asyncio.create_task(self.revoke(token, lease_id))
+            cleanup = asyncio.create_task(
+                revoke(lease_id) if revoke else self.revoke(token, lease_id)
+            )
             try:
                 await asyncio.shield(cleanup)
             except asyncio.CancelledError:
