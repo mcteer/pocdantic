@@ -68,7 +68,9 @@ def chain(monkeypatch):
             return httpx.Response(
                 200,
                 json={
-                    "lease_id": "database/creds/poc-readonly/exact",
+                    "lease_id": state.get(
+                        "lease_id", "database/creds/poc-readonly/exact.namespace"
+                    ),
                     "lease_duration": 120,
                     "data": {"username": "leased", "password": "private"},
                 },
@@ -124,11 +126,11 @@ async def test_signed_chain_uses_distinct_exact_cleanup_grant(chain):
         "path": "sys/leases/revoke",
         "capabilities": ["update"],
         "required_parameters": ["lease_id"],
-        "allowed_parameters": {"lease_id": ["database/creds/poc-readonly/exact"]},
+        "allowed_parameters": {"lease_id": ["database/creds/poc-readonly/exact.namespace"]},
     }
     read, revoke = state["vault"]
     assert read.headers["X-Vault-Token"] != revoke.headers["X-Vault-Token"]
-    assert json.loads(revoke.content) == {"lease_id": "database/creds/poc-readonly/exact"}
+    assert json.loads(revoke.content) == {"lease_id": "database/creds/poc-readonly/exact.namespace"}
 
 
 @pytest.mark.parametrize(
@@ -213,3 +215,33 @@ async def test_observer_reports_only_verified_lifecycle_stages(chain):
         "cleanup_delegation_verified",
         "lease_revoked",
     ]
+
+
+async def test_injected_transport_remains_caller_owned(chain):
+    from dataclasses import replace
+
+    state, make_broker = chain
+    async with httpx.AsyncClient() as http:
+        broker = replace(make_broker(), http=http)
+        assert await broker(1) == [{"id": 1, "status": "healthy"}]
+        assert not http.is_closed
+    assert http.is_closed
+    assert len(state["vault"]) == 2
+
+
+@pytest.mark.parametrize(
+    "lease_id",
+    [
+        "database/creds/other/exact.namespace",
+        "database/creds/poc-readonly/../other",
+        "database/creds/poc-readonly/exact/other",
+        "database/creds/poc-readonly/exact..namespace",
+    ],
+)
+async def test_cleanup_rejects_unexpected_lease_scope(chain, lease_id):
+    state, make_broker = chain
+    state["lease_id"] = lease_id
+    with pytest.raises(SecurityError, match="vault_lease_scope_invalid"):
+        await make_broker()(1)
+    assert len(state["exchanges"]) == 1
+    assert len(state["vault"]) == 1

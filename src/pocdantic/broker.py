@@ -1,4 +1,6 @@
+import re
 from collections.abc import Callable
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 
 import httpx
@@ -31,6 +33,8 @@ class DatabaseBroker:
     subject: str = field(repr=False)
     observer: Callable[[str], None] | None = field(default=None, repr=False)
 
+    http: httpx.AsyncClient | None = field(default=None, repr=False)
+
     def observe(self, stage: str) -> None:
         if self.observer:
             self.observer(stage)
@@ -48,7 +52,12 @@ class DatabaseBroker:
             (s.vault_addr, s.vault_audience, s.oauth_audience, s.database_host, s.database_name)
         ):
             raise SecurityError("database_integration_not_configured")
-        async with httpx.AsyncClient(timeout=15, follow_redirects=False) as http:
+        context = (
+            nullcontext(self.http)
+            if self.http is not None
+            else httpx.AsyncClient(timeout=15, follow_redirects=False)
+        )
+        async with context as http:
             oauth = OAuthClient(oauth_config(s), http)
             user_verifier = JWTVerifier(oauth, s.oauth_audience, token_typ=s.oauth_access_token_typ)
             principal = await user_verifier.verify(self.subject_token)
@@ -86,8 +95,10 @@ class DatabaseBroker:
             vault = VaultClient(s.vault_addr, s.vault_namespace, http)
 
             async def revoke(lease_id):
-                validate_path(lease_id)
-                if not lease_id.startswith(s.vault_read_path + "/"):
+                prefix = s.vault_read_path + "/"
+                if not lease_id.startswith(prefix) or not re.fullmatch(
+                    r"[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*", lease_id.removeprefix(prefix)
+                ):
                     raise SecurityError("vault_lease_scope_invalid")
                 cleanup_details = [
                     {
