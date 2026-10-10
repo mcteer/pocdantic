@@ -53,6 +53,7 @@ async function api(path, body) {
 
 async function loadSession() {
   session = await api('/workspace/session');
+  $('login').disabled = false;
   $('session-status').textContent = session.signed_in ? 'Signed in' : 'Sign in to run a task';
   $('login').hidden = session.signed_in;
   $('logout').hidden = !session.signed_in;

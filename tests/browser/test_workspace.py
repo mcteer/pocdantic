@@ -6,6 +6,7 @@ def test_keyboard_sign_in_and_sign_out(workspace_browser):
     page, origin, app, provider = workspace_browser
     page.goto(origin)
     expect(page.get_by_role("button", name="Sign in", exact=True)).to_be_visible()
+    expect(page.get_by_role("button", name="Sign in", exact=True)).to_be_enabled()
     page.get_by_role("button", name="Sign in", exact=True).focus()
     page.keyboard.press("Enter")
     expect(page.locator("#session-status")).to_have_text("Signed in")
@@ -17,6 +18,31 @@ def test_keyboard_sign_in_and_sign_out(workspace_browser):
     page.get_by_role("button", name="Sign out", exact=True).focus()
     page.keyboard.press("Enter")
     expect(page.locator("#session-status")).to_have_text("Sign in to run a task")
+
+
+def test_sign_in_waits_for_session_initialization(workspace_browser):
+    page, origin, app, provider = workspace_browser
+    page.add_init_script("""
+        const originalFetch = window.fetch.bind(window);
+        window.fetch = (...args) => {
+            if (args[0] === '/workspace/session' && !window.releaseWorkspaceSession) {
+                return new Promise(resolve => {
+                    window.releaseWorkspaceSession = () => resolve(originalFetch(...args));
+                });
+            }
+            return originalFetch(...args);
+        };
+    """)
+    page.goto(origin)
+    login = page.get_by_role("button", name="Sign in", exact=True)
+    expect(page.locator("#session-status")).to_have_text("Loading…")
+    expect(login).to_be_disabled()
+    page.keyboard.press("Enter")
+    assert provider.calls == []
+    page.evaluate("window.releaseWorkspaceSession()")
+    expect(login).to_be_enabled()
+    expect(page.locator("#session-status")).to_have_text("Sign in to run a task")
+    assert provider.calls == []
 
 
 def test_submit_reload_inert_result_and_double_click(workspace_browser):

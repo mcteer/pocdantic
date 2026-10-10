@@ -236,3 +236,19 @@ whitespace checks, existing 324-test regression, and green CI on the exact PR he
 merge. Live unknown-acquisition results, the unknown ban trigger, unsupported refresh, and
 003 audit/denial limitations remain disclosed. The PR/CI/merge identifiers will be recorded
 as the delivery completes.
+
+## CI finding and initialization fix
+
+PR #5: https://github.com/mcteer/pocdantic/pull/5. Implementation commit
+656384f33de3af4c9f2e0dd5eaa73e3fc5ef678e had a passing pull-request CI run
+38060721688, but push run 38060696930 failed its first keyboard sign-in test (323 passed).
+The test activated sign-in while browser session initialization was still pending.
+A delayed-bootstrap WebKit regression was first observed failing because Sign in was
+enabled during Loading. The initial HTML now disables Sign in and loadSession enables
+it only after the cookie/CSRF response is loaded; keyboard testing waits for readiness.
+No assertion retries or timeout increases were introduced.
+
+Final local regression after that change: 325 passed in 63.71 seconds, including eighteen
+WebKit scenarios. Ruff check/format, wheel/sdist build, and distribution privacy passed.
+The earlier 324-test result remains historical. The revised head must pass both push and
+PR CI before merging; the initial passing PR run does not waive the failed push run.
