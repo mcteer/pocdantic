@@ -112,11 +112,24 @@ def chain(monkeypatch, tmp_path):
     recovery = RecoveryStore(settings, project=tmp_path)
     recovery.initialize()
 
+    from uuid import uuid4
+
+    from agent.response.guard import MemoryStore, RootGuard
+    from agent.schemas import Principal
+
+    control = MemoryStore(settings)
+    binding, _ = control.register(
+        uuid4(), uuid4(), Principal(issuer=settings.oauth_issuer, subject="human")
+    )
+    guard = RootGuard(control, binding)
+
     def broker():
         token = sign(
             {"sub": "human", "aud": "api", "scope": "database:read"} | state["user_change"]
         )
-        return DatabaseBroker(settings, SecretStr(token), "human", recovery_store=recovery)
+        return DatabaseBroker(
+            settings, SecretStr(token), "human", recovery_store=recovery, run_guard=guard
+        )
 
     return state, broker
 
@@ -363,3 +376,67 @@ async def test_no_cleanup_complete_event_before_durable_receipt(chain, monkeypat
     assert len(state["vault"]) == 2
     assert "lease_revoked" not in stages
     assert store.read().attempts[0].state == "cleanup_pending"
+
+
+@pytest.mark.parametrize("boundary", ["actor", "delegation", "acquisition", "sql"])
+async def test_containment_during_awaited_boundaries_preserves_cleanup(
+    chain, monkeypatch, boundary
+):
+    """Fresh trusted checks reject a held root after token awaits and before SQL."""
+    from agent.oauth import OAuthClient
+
+    state, factory = chain
+    broker = factory()
+    guard = broker.run_guard
+
+    def hold():
+        """Install a synthetic durable-equivalent hold for this registered root."""
+        guard.store.blocked.add(guard.binding.root_run_id)
+
+    if boundary == "actor":
+        original = OAuthClient.client_credentials
+
+        async def actor(self, *args, **kwargs):
+            result = await original(self, *args, **kwargs)
+            hold()
+            return result
+
+        monkeypatch.setattr(OAuthClient, "client_credentials", actor)
+    elif boundary == "delegation":
+        original = OAuthClient.exchange_details
+
+        async def exchange(self, *args, **kwargs):
+            result = await original(self, *args, **kwargs)
+            hold()
+            return result
+
+        monkeypatch.setattr(OAuthClient, "exchange_details", exchange)
+    elif boundary == "acquisition":
+        from agent.recovery.lifecycle import CredentialLifecycle
+
+        original = CredentialLifecycle.start
+
+        def start(self):
+            result = original(self)
+            hold()
+            return result
+
+        monkeypatch.setattr(CredentialLifecycle, "start", start)
+    else:
+        from agent.recovery.lifecycle import CredentialLifecycle
+
+        original = CredentialLifecycle.acquired
+
+        def acquired(self, *args, **kwargs):
+            result = original(self, *args, **kwargs)
+            hold()
+            return result
+
+        monkeypatch.setattr(CredentialLifecycle, "acquired", acquired)
+    with pytest.raises(SecurityError, match="contained"):
+        await broker(1)
+    if boundary == "sql":
+        assert [request.method for request in state["vault"]] == ["GET", "PUT"]
+        assert broker.recovery_store.read().attempts[0].state == "resolved"
+    else:
+        assert state["vault"] == []

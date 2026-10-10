@@ -94,6 +94,7 @@ class Runtime:
         definition_ref=None,
         validation_id=None,
         observation_id=None,
+        response_store=None,
     ):
         """Build agents and process-local policy, audit, approval, and containment state.
 
@@ -101,6 +102,9 @@ class Runtime:
         to model prompts or public output.
         """
         self.settings = settings
+        from .response.store import ResponseStore
+
+        self.response_store = response_store or ResponseStore(settings)
         self.telemetry = telemetry or Telemetry()
         self.event_sink = event_sink or NullSink()
         self.validation_id, self.observation_id = validation_id, observation_id
@@ -213,6 +217,8 @@ class Runtime:
             {"agent_ref": str(observer.agent_ref), "workload_ref": str(observer.workload_ref)}
         )
         selected_reader = database_reader or self.database_reader
+        guard_context = None
+        root_guard = None
         from .broker import DatabaseBroker
 
         if isinstance(selected_reader, DatabaseBroker):
@@ -246,8 +252,17 @@ class Runtime:
                 raise SecurityError("identity_expired")
             if request.profile not in self.agents:
                 raise SecurityError("profile_unknown")
-            self.containment.check(self.settings.workload_definition, run_id)
-            self.containment.check(request.profile, run_id)
+            from .response.guard import root_scope
+
+            guard_context = root_scope(
+                self.response_store, request.request_id, run_id, principal, self.contain_run
+            )
+            root_guard = await guard_context.__aenter__()
+            deps = replace(deps, root_guard=root_guard)
+            if isinstance(selected_reader, DatabaseBroker):
+                selected_reader = replace(selected_reader, run_guard=root_guard)
+                deps = replace(deps, database_reader=selected_reader)
+            deps.check_containment()
             deps.record("identity", "verified")
             deps.record("run", "started")
             self._active[run_id] = (request.profile, asyncio.current_task())
@@ -275,7 +290,7 @@ class Runtime:
                             "workload_definition": self.settings.workload_definition,
                         },
                     )
-            self.containment.check(self.settings.workload_definition, run_id)
+            deps.check_containment()
             if message_history is not None:
                 if result is not None:
                     message_history[:] = result.all_messages()
@@ -306,3 +321,5 @@ class Runtime:
         finally:
             self.approvals.invalidate_run(run_id)
             self._active.pop(run_id, None)
+            if guard_context is not None and root_guard is not None:
+                await guard_context.__aexit__(None, None, None)

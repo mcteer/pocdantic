@@ -11,6 +11,8 @@ from uuid import UUID
 from pydantic import AwareDatetime, ConfigDict, Field, field_validator, model_validator
 
 from agent.recovery.models import REASONS
+from agent.response.models import REASONS as RESPONSE_REASONS
+from agent.response.models import PublicSummary
 from agent.schemas import StrictModel
 
 ERRORS = {
@@ -43,6 +45,7 @@ ERRORS = {
 
 
 ERRORS.update(REASONS)
+ERRORS.update({reason: ("containment", action) for reason, action in RESPONSE_REASONS.items()})
 
 
 def now():
@@ -147,6 +150,7 @@ class JobView(Versioned):
         "not_acquired"
     )
     retry_available: bool = False
+    containment: tuple[PublicSummary, ...] = ()
     error: WorkflowError | None = None
 
     @field_validator("created_at", "started_at", "finished_at")

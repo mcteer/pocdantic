@@ -2,11 +2,24 @@
 
 import asyncio
 import sys
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
+from contextvars import ContextVar
+
+OWNERSHIP_FDS = ContextVar("effect_ownership_fds", default=())
+
+
+@contextmanager
+def descriptor_scope(fd):
+    """Make a trusted lock descriptor inheritable by only scoped effect subprocesses."""
+    token = OWNERSHIP_FDS.set((*OWNERSHIP_FDS.get(), fd) if fd is not None else OWNERSHIP_FDS.get())
+    try:
+        yield
+    finally:
+        OWNERSHIP_FDS.reset(token)
 
 
 @asynccontextmanager
-async def network_process(module, *arguments):
+async def network_process(module, *arguments, ownership_fds=()):
     """Spawn only trusted modules and retain ownership even if cancellation races spawn.
 
     Secrets may use the private stdin pipe, never command arguments or worker output.
@@ -18,6 +31,7 @@ async def network_process(module, *arguments):
             "-m",
             module,
             *map(str, arguments),
+            pass_fds=tuple(set((*OWNERSHIP_FDS.get(), *ownership_fds))),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,

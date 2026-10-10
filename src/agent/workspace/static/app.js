@@ -45,6 +45,14 @@ const messages = {
   recovery_access_denied: 'The operator needs authority to revoke this exact lease with synchronous completion.',
   recovery_busy: 'An active task or cleanup owns recovery. Wait for it to finish.',
   recovery_capacity: 'Recovery storage is full. Resolve recorded incidents; unresolved records are never discarded.',
+  response_uninitialized: 'An operator must run agent respond init --prepare, review the private policy, then agent respond init.',
+  response_migration_required: 'Stop live work and run agent recover migrate before response enrollment.',
+  recovery_migration_required: 'Stop live work and run agent recover migrate before new database reads.',
+  response_storage_error: 'Containment storage needs operator repair. Preserve its files; do not reset it.',
+  response_policy_changed: 'Restore the enrolled configuration. Editing policy does not clear a hold.',
+  contained: 'Work stopped by an incident. An operator must confirm credential cleanup before release.',
+  response_busy: 'The response owner is draining. Wait and inspect incident status.',
+  response_capacity: 'The incident queue is full. An operator must resolve recorded incidents.',
   diagnostics_busy: 'A previous connection check is still running or draining. Wait for it to finish.'
 };
 let session = null, latestJobs = [], currentId = null, pending = null, pendingRetry = null;
@@ -100,7 +108,7 @@ async function loadSession() {
 /** Disable conflicting operations and freeze the exact payload of an uncertain submission.
  * "Check submission" resends the same UUID/body for server-side deduplication. */
 function controls(busy) {
-  const blocked = operational && !['clear', 'not_configured'].includes(operational.recovery);
+  const blocked = operational && (!['clear', 'not_configured'].includes(operational.recovery) || operational.containment?.restricted);
   $('run').disabled = posting || busy || blocked;
   $('task').disabled = posting || !!pending;
   $('profile').disabled = posting || !!pending;
@@ -122,6 +130,11 @@ function render(job) {
   $('correlation').textContent = 'Job ' + job.job_id + ' · Request ' + job.request_id +
     ' · Run ' + (job.run_id || 'pending');
   $('cleanup').textContent = 'Credential cleanup: ' + job.cleanup_status;
+  const containment = job.containment || [];
+  $('containment-status').textContent = containment.length ? containment.map(item =>
+    (item.contained ? 'Work stopped' : 'Local hold released') + ' · Credential cleanup ' +
+    (item.cleanup === 'confirmed' ? 'confirmed' : item.cleanup === 'not_applicable' ? 'not applicable' : 'pending')
+  ).join(' · ') : '';
   $('action').textContent = job.action_summary || '';
   $('result').textContent = (job.result || '') + (job.truncated ? '\n[Result truncated]' : '');
   $('retry').hidden = !job.retry_available;
@@ -279,7 +292,8 @@ function renderOperations(view) {
     'Sign-in: ' + (view.authentication ? 'signed in' : 'sign-in required') +
     ' · Connection: ' + view.connection + ' · Recovery: ' + view.recovery.replaceAll('_', ' ') +
     (view.blocked_count ? ' (' + view.blocked_count + ' unresolved)' : '') +
-    (view.active_work ? ' · Work active' : '');
+    (view.active_work ? ' · Work active' : '') +
+    (view.containment?.restricted ? ' · Work stopped by an incident' : '');
   $('recovery-guidance').textContent = view.reason_code ? messages[view.reason_code] || '' :
     'Connection checks do not start tasks or change sign-in. Recovery never replays an earlier task.';
   $('incidents').replaceChildren(...view.incidents.map(incident => {
@@ -297,7 +311,7 @@ function renderOperations(view) {
   $('check-connection').disabled = !session || checking;
   $('check-recovery').disabled = !session || checking;
   $('login').disabled = authPosting || view.active_work;
-  controls(knownBusy || view.active_work);
+  controls(knownBusy || view.active_work || view.containment?.restricted);
 }
 
 /** Reread only local aggregate status; polling never runs a provider diagnostic or recovery effect. */

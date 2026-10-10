@@ -5,6 +5,7 @@ The historical package path remains eligible only for immutable Git-history chec
 """
 
 import json
+import re
 from pathlib import PurePosixPath
 
 ROOT_FILES = {
@@ -71,14 +72,35 @@ def private_content(name: str, data: bytes) -> bool:
             values = [json.loads(line) for line in data.splitlines() if line.strip()]
         except (ValueError, UnicodeError, RecursionError):
             return False
+    parts = PurePosixPath(name).parts
+    example_name = name
+    if len(parts) == 3 and re.fullmatch(r"pocdantic-[0-9][A-Za-z0-9.]+", parts[0]):
+        example_name = str(PurePosixPath(*parts[1:]))
     pending = list(values)
     while pending:
         value = pending.pop()
         if isinstance(value, list):
             pending.extend(value)
         elif isinstance(value, dict):
+            synthetic_policy = example_name == "config/response.example.json" and value == {
+                "schema_version": 1,
+                "intake_mode": "local_only",
+                "sources": [],
+                "audience": None,
+                "workload_definition": "demo-agent",
+                "environment_digest": "0" * 64,
+                "issuer": "https://id.example",
+                "automatic_cleanup": False,
+            }
             if (
-                {"environment_digest", "source_instance", "records"} <= value.keys()
+                {"installation_id", "policy_digest", "incidents"} <= value.keys()
+                or {"installation_id", "recovery_mode", "recovery_installation_id"} <= value.keys()
+                or {"intake_mode", "sources", "audience", "automatic_cleanup"} <= value.keys()
+                and not synthetic_policy
+                or {"kind", "root_run_id", "request_id", "issuer", "subject"} <= value.keys()
+                or {"incident_id", "source", "event_id", "payload_digest"} <= value.keys()
+                or {"incident_id", "source", "event_id", "instructions"} <= value.keys()
+                or {"environment_digest", "source_instance", "records"} <= value.keys()
                 or {"installation_id", "environment_digest", "attempts"} <= value.keys()
                 or value.get("type") in ("request", "response")
                 and isinstance(value.get("request"), dict)

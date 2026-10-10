@@ -27,6 +27,7 @@ def add_recovery_parser(subparsers):
     commands.add_parser(
         "init", help="Enroll future live database attempts; does not repair incidents"
     )
+    commands.add_parser("migrate", help="Offline lossless recovery state migration")
     commands.add_parser("status", help="Inspect recovery without provider requests")
     review = commands.add_parser("import", help="Verify reviewed private native evidence")
     review.add_argument("--incident", dest="incident_id", required=True, type=UUID)
@@ -65,6 +66,8 @@ async def execute_recovery(args, *, settings=None, project=None, transport=None)
             changed = store.initialize()
             output = result(store, "initialized" if changed else "unchanged")
             code = 0
+        elif args.recovery_command == "migrate":
+            store.migrate()
         elif args.recovery_command in {"import", "revoke"}:
             with store.effect():
                 journal = store.read()
@@ -246,7 +249,11 @@ async def isolated_revoke(store, item, token):
             "token": token.get_secret_value(),
         }
     ).encode()
-    async with network_process(__name__, "cleanup-worker") as process:
+    async with network_process(
+        __name__,
+        "cleanup-worker",
+        ownership_fds=tuple(owner.fd for owner in store.owners if owner.active),
+    ) as process:
         raw, _ = await process.communicate(payload)
         if process.returncode != 0 or raw != b"revoked":
             raise RecoveryError(

@@ -492,3 +492,44 @@ must have `required_parameters: ["lease_id", "sync"]` and
 omitted sync, extra rights, or widened handle lists are rejected. Review
 `config/vault-path-access.schema.json` and `scripts/provision_database.py`; implementation
 and CI do not apply these provider changes. Existing policies that reject sync fail closed.
+
+## Incident containment
+
+Live execution requires explicit local enrollment. Stop the workspace first. For a new
+live database installation run `uv run agent recover init`; for an existing schema-1
+installation run `uv run agent recover migrate`. Migration preserves old attempts and
+labels their ownership unknown; unresolved attempts still need operator repair.
+
+Run `uv run agent respond init --prepare`, review `.local/response/policy.json`, then run
+`uv run agent respond init`. The default local-only policy needs no relay or new environment
+variables. Restart the workspace and inspect `uv run agent respond status` for root IDs.
+
+In a separate terminal, start `uv run agent respond serve --port 8002`. To stop a particular
+root, run:
+
+```sh
+uv run agent respond submit --event-id operator-001 --occurred-at CURRENT_UTC --reason suspected_compromise --run ROOT_UUID
+uv run agent respond status --incident INCIDENT_UUID
+uv run agent respond reconcile --incident INCIDENT_UUID
+```
+
+Replace placeholders with the current UTC timestamp and IDs returned by private status.
+Use `--definition DEFINITION_KEY` instead of `--run` to hold the configured stable definition.
+Retain the exact event ID and payload when delivery is uncertain: identical delivery is
+idempotent; changed content under that ID is rejected. Status and reconciliation never
+call providers. The responder attempts only previously unsubmitted attributable cleanup.
+
+Local work stops independently of cleanup. Denied, unknown or uncertain cleanup remains
+blocked. Follow the exact `agent recover` instructions in private response status, then
+reconcile the response incident. Do not delete journals or retry ambiguous provider work.
+To release a settled definition hold, inspect the current revision and supply **every**
+current incident:
+
+```sh
+uv run agent respond release --definition DEFINITION_KEY --incident INCIDENT_UUID --revision CURRENT_REVISION --operator local-operator
+```
+
+Use the configured definition key from private status. Repeat `--incident` for overlapping holds. Release permits fresh roots; it never resumes
+old roots or approvals. Exact lease cleanup does not prove that native downstream sessions
+or existing external JWTs have stopped. Native risk collection, user suspension, rotation
+and notification remain follow-on work.

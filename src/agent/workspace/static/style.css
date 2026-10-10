@@ -99,3 +99,6 @@ details {
   margin-top:16px}
 summary {
   cursor:pointer}
+
+/* Separate incident restriction from provider credential-cleanup completion. */
+#containment-status:not(:empty) { border-left: 3px solid #b7791f; padding-left: .7rem; }

@@ -7,6 +7,8 @@ unrelated work. Read [CONTRIBUTING.md](CONTRIBUTING.md) and the
 ## Project map
 
 - `src/agent/`: Python runtime, identity verification, policy, approvals, and trusted adapters.
+- `src/agent/response/`: durable incident intake, root guards, exact cleanup and local release.
+- `src/agent/recovery/`: private acquisition ownership, migration and operator repair.
 - `src/agent/workspace/`: local browser workspace; static assets use plain JavaScript and CSS.
 - `src/agent/validation/`: deterministic scenarios, private evidence, readiness, and closeout.
 - `tests/`: unit and integration checks; `tests/browser/` uses Playwright with WebKit.

@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 
+from agent.recovery.store import RecoveryStore as DurableRecoveryStore
 from agent.settings import Settings
 
 
@@ -29,3 +30,26 @@ def crash_checkpoint(name, destination):
     """Signal a controlled boundary, then await an external process termination."""
     Path(destination).write_text(name)
     os.kill(os.getpid(), __import__("signal").SIGSTOP)
+
+
+class SyntheticRecoveryStore(DurableRecoveryStore):
+    """Add explicit synthetic attribution only to legacy recovery unit fixtures."""
+
+    def begin(self, owner, binding=None):
+        from uuid import uuid4
+
+        from agent.recovery.models import BoundOwnership
+
+        return super().begin(
+            owner,
+            binding
+            or owner.binding
+            or BoundOwnership(
+                root_run_id=uuid4(),
+                request_id=uuid4(),
+                generation=1,
+                workload_definition=self.settings.workload_definition,
+                issuer=self.settings.oauth_issuer or "offline",
+                subject="fixture-user",
+            ),
+        )

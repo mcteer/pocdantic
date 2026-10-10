@@ -175,8 +175,35 @@ def recovery_settings(tmp_path):
 @pytest.fixture
 def recovery_store(tmp_path, recovery_settings):
     """Enroll only an isolated temporary journal; never touch project recovery state."""
-    from agent.recovery.store import RecoveryStore
+    from recovery_support import SyntheticRecoveryStore
 
-    store = RecoveryStore(recovery_settings, project=tmp_path)
+    store = SyntheticRecoveryStore(recovery_settings, project=tmp_path)
     store.initialize()
     return store
+
+
+@pytest.fixture(autouse=True)
+def synthetic_runtime_dependency(monkeypatch, tmp_path):
+    """Explicitly inject memory control state into existing offline runtime fixtures.
+
+    Tests of durable/live admission supply their own response_store and are unaffected.
+    Production constructors always default to the durable control plane.
+    """
+    from agent.recovery.store import RecoveryStore
+    from agent.response.guard import MemoryStore
+    from agent.runtime import Runtime
+
+    store_original = RecoveryStore.__init__
+
+    def isolated_store(self, settings, *, project=None):
+        store_original(self, settings, project=project or tmp_path)
+
+    monkeypatch.setattr(RecoveryStore, "__init__", isolated_store)
+    original = Runtime.__init__
+
+    def initialize(self, settings, **kwargs):
+        if kwargs.get("response_store") is None:
+            kwargs["response_store"] = MemoryStore(settings)
+        original(self, settings, **kwargs)
+
+    monkeypatch.setattr(Runtime, "__init__", initialize)

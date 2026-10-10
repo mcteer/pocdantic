@@ -245,7 +245,7 @@ class RunsManager:
             session.submissions[value.submission_id] = (payload, child)
             return child
         if (
-            not parent.view.retry_available
+            not self.project_job(parent).retry_available
             or len(parent.candidates) != 1
             or parent.writes
             or parent.uncertain
@@ -529,3 +529,54 @@ class RunsManager:
                 self.runtime.forget(job.context.run_id)
 
         return drain()
+
+    def project_job(self, job):
+        """Return containment details only after the caller has resolved a session-owned job."""
+        from agent.response.store import ResponseStore
+
+        control = self.runtime.response_store
+        if not isinstance(control, ResponseStore):
+            return job.view
+        try:
+            state = control.read()
+            root = next((r for r in state.runs if r.root_run_id == job.context.run_id), None)
+            details = tuple(
+                control.summary(i, state) for i in state.incidents if root and i.matches(root)
+            )
+            return job.view.model_copy(
+                update={
+                    "containment": details,
+                    "retry_available": job.view.retry_available
+                    and not any(i.contained for i in details),
+                }
+            )
+        except SecurityError:
+            return job.view.model_copy(update={"retry_available": False})
+
+    def containment_view(self, session=None):
+        """Anonymous restriction is aggregate; only this session's roots authorize details."""
+        from agent.response.store import ResponseStore
+
+        control = self.runtime.response_store
+        if not isinstance(control, ResponseStore):
+            return {"restricted": False, "next_action": None}
+        try:
+            state = control.read()
+            restricted = bool(state.holds)
+            roots = {job.context.run_id for job in session.jobs.values()} if session else set()
+            details = tuple(
+                control.summary(i, state).model_dump(mode="json")
+                for i in state.incidents
+                if any(r.root_run_id in roots and i.matches(r) for r in state.runs)
+            )
+            view = {
+                "restricted": restricted,
+                "next_action": "inspect_incident" if restricted else None,
+            }
+            if session is not None:
+                view["incidents"] = details
+            return view
+        except SecurityError as error:
+            from agent.response.models import REASONS
+
+            return {"restricted": True, "next_action": REASONS.get(str(error), "repair_storage")}

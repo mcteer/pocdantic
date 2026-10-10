@@ -1,0 +1,122 @@
+[
+  {
+    "criterion": "UC1-01",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "006 planning does not re-accept prior delegated-access controls; reviewed native source evidence remains independent, with Development-tier audit unavailable.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC1-02",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "006 planning does not re-accept prior delegated-access controls; reviewed native source evidence remains independent, with Development-tier audit unavailable.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC1-03",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "006 planning does not re-accept prior delegated-access controls; reviewed native source evidence remains independent, with Development-tier audit unavailable.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC1-04",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "006 planning does not re-accept prior delegated-access controls; reviewed native source evidence remains independent, with Development-tier audit unavailable.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC1-05",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "006 planning does not re-accept prior delegated-access controls; reviewed native source evidence remains independent, with Development-tier audit unavailable.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC2-01",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "006 planning does not re-accept prior authorization and approval controls; current native source evidence and explicit review remain independent.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC2-02",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "006 planning does not re-accept prior authorization and approval controls; current native source evidence and explicit review remain independent.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC2-03",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "006 planning does not re-accept prior authorization and approval controls; current native source evidence and explicit review remain independent.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC3-01",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "006 plans local containment and exact dynamic cleanup only; native detection, external enforcement and full remediation evidence remain follow-on work. Development-tier audit is unavailable.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC3-02",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "006 plans local containment and exact dynamic cleanup only; native detection, external enforcement and full remediation evidence remain follow-on work. Development-tier audit is unavailable.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC3-03",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "006 plans local containment and exact dynamic cleanup only; native detection, external enforcement and full remediation evidence remain follow-on work. Development-tier audit is unavailable.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC3-04",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "006 plans local containment and exact dynamic cleanup only; native detection, external enforcement and full remediation evidence remain follow-on work. Development-tier audit is unavailable.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC4-01",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "Shadow-agent discovery and enrollment belong to Function 11 and are outside 006; native integration and reviewed evidence are not supplied.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC4-02",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "Shadow-agent discovery and enrollment belong to Function 11 and are outside 006; native integration and reviewed evidence are not supplied.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC4-03",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "Shadow-agent discovery and enrollment belong to Function 11 and are outside 006; native integration and reviewed evidence are not supplied.",
+    "source": "none",
+    "references": []
+  }
+]

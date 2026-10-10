@@ -60,6 +60,7 @@ def create_workspace_app(
     database_reader_factory=None,
     approval_backend=None,
     recovery_store=None,
+    response_store=None,
 ):
     """Build the loopback workspace with isolated sessions and one bounded run manager.
 
@@ -74,7 +75,12 @@ def create_workspace_app(
     origin = f"http://127.0.0.1:{port}"
     cookie_name = f"agent_workspace_{port}"
     telemetry = configure_telemetry(config)
-    runtime = Runtime(config, model=model or selected_model(config), telemetry=telemetry)
+    runtime = Runtime(
+        config,
+        model=model or selected_model(config),
+        telemetry=telemetry,
+        response_store=response_store,
+    )
     store = SessionStore()
     from agent.recovery.store import RecoveryStore
     from agent.workspace.diagnostics import Diagnostics
@@ -101,6 +107,7 @@ def create_workspace_app(
             app.state.auth = WorkspaceAuth(config, http, origin)
             app.state.diagnostics = diagnostics
             app.state.recovery = recovery_store
+            app.state.response = runtime.response_store
             app.state.store = store
             app.state.manager = RunsManager(
                 runtime,
@@ -306,7 +313,8 @@ def create_workspace_app(
                 if all(c.state == "observed" for c in network)
                 else "blocked"
             )
-        return view.model_copy(update={"connection": connection})
+        restriction = manager.containment_view(current if signed else None)
+        return view.model_copy(update={"connection": connection, "containment": restriction})
 
     @app.get("/workspace/operations")
     async def operational_view(request: Request):
@@ -423,7 +431,10 @@ def create_workspace_app(
         value = await body(request, TaskSubmission)
         existing = value.submission_id in session.submissions
         job = await app.state.manager.submit(session, value)
-        return JSONResponse(job.view.model_dump(mode="json"), status_code=200 if existing else 202)
+        return JSONResponse(
+            app.state.manager.project_job(job).model_dump(mode="json"),
+            status_code=200 if existing else 202,
+        )
 
     @app.get("/workspace/runs")
     async def list_runs(request: Request):
@@ -432,7 +443,8 @@ def create_workspace_app(
         return {
             "schema_version": 1,
             "jobs": [
-                job.view.model_dump(mode="json") for job in reversed(list(session.jobs.values()))
+                app.state.manager.project_job(job).model_dump(mode="json")
+                for job in reversed(list(session.jobs.values()))
             ],
         }
 
@@ -444,7 +456,9 @@ def create_workspace_app(
             identifier = UUID(job_id)
         except ValueError:
             raise SecurityError("run_not_found") from None
-        return app.state.manager.get(session, identifier).view.model_dump(mode="json")
+        return app.state.manager.project_job(app.state.manager.get(session, identifier)).model_dump(
+            mode="json"
+        )
 
     @app.post("/workspace/runs/{job_id}/retry")
     async def retry(request: Request, job_id: str):
@@ -464,6 +478,9 @@ def create_workspace_app(
             and parent.candidates[0].child is not None
         )
         job = await app.state.manager.retry(session, identifier, value)
-        return JSONResponse(job.view.model_dump(mode="json"), status_code=200 if existing else 202)
+        return JSONResponse(
+            app.state.manager.project_job(job).model_dump(mode="json"),
+            status_code=200 if existing else 202,
+        )
 
     return app

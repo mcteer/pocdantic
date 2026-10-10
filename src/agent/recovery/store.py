@@ -22,9 +22,20 @@ from agent.validation.context import profile_bytes
 from agent.validation.models import canonical
 from agent.validation.store import decode_json, no_symlinks, project_root
 
-from .models import REASONS, Anchor, Attempt, Journal, OperationalView, Receipt, now
+from .models import (
+    REASONS,
+    Anchor,
+    AttemptV2,
+    BoundOwnership,
+    JournalV2,
+    LegacyOwnership,
+    OperationalView,
+    Receipt,
+    now,
+    parse_journal,
+)
 
-MAX_BYTES = 2 * 1024 * 1024
+MAX_BYTES = 4 * 1024 * 1024
 RECEIPT_RESERVE = 16 * 1024
 LOCKS = ("workspace.lock", "effect.lock", "journal.lock")
 
@@ -88,6 +99,7 @@ class EffectOwner:
     active: bool = True
     used: bool = False
     incident_id: object = None
+    binding: object = None
 
     def require(self, store):
         """Reject released, foreign, or fabricated ownership before admitting an acquisition."""
@@ -104,6 +116,7 @@ class RecoveryStore:
     def __init__(self, settings, *, project=None):
         """Resolve one immutable project root; tests may inject an isolated project directory."""
         self.settings = settings
+        self.max_bytes = MAX_BYTES
         self.project = Path(project or project_root()).absolute()
         self.root = self.project / ".local/recovery"
         self.workspace_context = None
@@ -216,18 +229,18 @@ class RecoveryStore:
         with os.fdopen(fd, "rb") as file:
             before = os.fstat(file.fileno())
             check_stat(before)
-            raw = file.read(MAX_BYTES + 1)
+            raw = file.read(self.max_bytes + 1)
             after = os.stat(name, dir_fd=directory, follow_symlinks=False)
             if (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino) or len(
                 raw
-            ) > MAX_BYTES:
+            ) > self.max_bytes:
                 raise RecoveryError()
         return decode_json(raw)
 
     def _read(self, directory):
         """Validate anchor, snapshot, and current environment while holding journal.lock."""
         anchor = Anchor.model_validate(self._read_file(directory, "anchor.json"))
-        journal = Journal.model_validate(self._read_file(directory, "state.json"))
+        journal = parse_journal(self._read_file(directory, "state.json"))
         if anchor.installation_id != journal.installation_id:
             raise RecoveryError()
         if journal.environment_digest != environment_digest(self.settings):
@@ -247,7 +260,7 @@ class RecoveryStore:
     def _write(self, directory, journal):
         """Commit a complete snapshot with file fsync, atomic replacement, and directory fsync."""
         raw = canonical(journal)
-        if len(raw) > MAX_BYTES:
+        if len(raw) > self.max_bytes:
             raise RecoveryError("recovery_capacity")
         name = str(uuid4()) + ".tmp"
         try:
@@ -306,7 +319,9 @@ class RecoveryStore:
             try:
                 values = {
                     "anchor.json": Anchor(installation_id=installation),
-                    "state.json": Journal(installation_id=installation, environment_digest=digest),
+                    "state.json": JournalV2(
+                        installation_id=installation, environment_digest=digest
+                    ),
                 }
                 for name in (*values, *LOCKS):
                     fd = os.open(
@@ -339,7 +354,22 @@ class RecoveryStore:
     def _prune(self, journal, *, reserve=False):
         """Remove only resolved records, retaining uncertainty even when capacity is exhausted."""
         cutoff = now() - timedelta(days=7)
-        attempts = [a for a in journal.attempts if a.state != "resolved" or a.updated_at >= cutoff]
+        pins = set()
+        response_root = self.project / ".local/response"
+        if (response_root / "anchor.json").exists() or response_root.is_symlink():
+            from agent.response.store import ResponseStore
+
+            try:
+                pins = ResponseStore(
+                    self.settings, project=self.project, recovery=self
+                ).pinned_recovery(journal)
+            except Exception:
+                return journal.attempts
+        attempts = [
+            a
+            for a in journal.attempts
+            if a.state != "resolved" or a.updated_at >= cutoff or a.incident_id in pins
+        ]
         if reserve:
             while (
                 len(attempts) >= 1000
@@ -351,6 +381,8 @@ class RecoveryStore:
                         a
                         for a in sorted(attempts, key=lambda x: x.updated_at)
                         if a.state == "resolved"
+                        and a.incident_id not in pins
+                        and a.updated_at < cutoff
                     ),
                     None,
                 )
@@ -359,7 +391,7 @@ class RecoveryStore:
                 attempts.remove(oldest)
         return tuple(attempts)
 
-    def begin(self, owner):
+    def begin(self, owner, binding=None):
         """Reserve receipt capacity and durably commit intent before any credential request."""
         owner.require(self)
         if owner.used:
@@ -367,17 +399,21 @@ class RecoveryStore:
         try:
             with self._lock("journal.lock"), self._directory() as directory:
                 journal = self._read(directory)
+                if journal.schema_version != 2:
+                    raise RecoveryError("recovery_migration_required")
                 unfinished = [a for a in journal.attempts if a.state != "resolved"]
                 if unfinished:
                     raise RecoveryError(unfinished[0].reason_code)
                 attempts = self._prune(journal, reserve=True)
-                item = Attempt(
+                ownership = BoundOwnership.model_validate(binding or owner.binding)
+                item = AttemptV2(
+                    ownership=ownership,
                     incident_id=uuid4(),
                     operation_id=uuid4(),
                     environment_digest=journal.environment_digest,
                     credential_path=self.settings.vault_read_path,
                 )
-                updated = Journal.model_validate(
+                updated = type(journal).model_validate(
                     journal.model_dump()
                     | {
                         "attempts": (*attempts, item),
@@ -446,7 +482,7 @@ class RecoveryStore:
                             )
                         ):
                             raise RecoveryError("recovery_evidence_invalid")
-                updated = Attempt.model_validate(
+                updated = type(item).model_validate(
                     item.model_dump()
                     | changes
                     | {"revision": item.revision + 1, "updated_at": now()}
@@ -454,7 +490,7 @@ class RecoveryStore:
                 attempts = tuple(
                     updated if a.incident_id == incident_id else a for a in journal.attempts
                 )
-                journal = Journal.model_validate(
+                journal = type(journal).model_validate(
                     journal.model_dump()
                     | {"attempts": attempts, "revision": journal.revision + 1, "updated_at": now()}
                 )
@@ -469,7 +505,7 @@ class RecoveryStore:
             journal = self._read(directory)
             attempts = self._prune(journal)
             if attempts != journal.attempts:
-                updated = Journal.model_validate(
+                updated = type(journal).model_validate(
                     journal.model_dump()
                     | {"attempts": attempts, "revision": journal.revision + 1, "updated_at": now()}
                 )
@@ -493,7 +529,7 @@ class RecoveryStore:
                 journal = self._read(directory)
                 attempts = self._prune(journal)
                 if attempts != journal.attempts:
-                    journal = Journal.model_validate(
+                    journal = type(journal).model_validate(
                         journal.model_dump()
                         | {
                             "attempts": attempts,
@@ -542,3 +578,48 @@ class RecoveryStore:
                 reason_code=reason,
                 next_action=REASONS[reason][1],
             )
+
+    def migrate(self):
+        """Atomically convert v1 state only, under offline workspace/effect ownership.
+
+        No native fields, receipts, per-attempt revisions or timestamps are changed.
+        An orphan temporary file is never promoted after a crash.
+        """
+        with self.workspace(), self.effect(), self._lock("journal.lock"), self._directory() as fd:
+            journal = self._read(fd)
+            if journal.schema_version == 2:
+                return False
+            attempts = tuple(
+                AttemptV2.model_validate(
+                    a.model_dump() | {"schema_version": 2, "ownership": LegacyOwnership()}
+                )
+                for a in journal.attempts
+            )
+            updated = JournalV2.model_validate(
+                journal.model_dump()
+                | {
+                    "schema_version": 2,
+                    "attempts": attempts,
+                    "revision": journal.revision + 1,
+                    "updated_at": now(),
+                }
+            )
+            if len(canonical(updated)) > self.max_bytes:
+                raise RecoveryError("recovery_capacity")
+            self._write(fd, updated)
+            return True
+
+    def normalize_owned(self):
+        """Normalize orphaned attempts when the caller already retains effect ownership."""
+        journal = self.read()
+        for item in journal.attempts:
+            if item.state not in {"resolved", "unresolved"}:
+                self.update(
+                    item.incident_id,
+                    item.revision,
+                    state="unresolved",
+                    reason_code="cleanup_unconfirmed"
+                    if item.lease_handle
+                    else "acquisition_uncertain",
+                )
+        return self.read()

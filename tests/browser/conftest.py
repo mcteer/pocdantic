@@ -100,10 +100,13 @@ def workspace_browser(workspace_settings, identity_provider, request, monkeypatc
                 await asyncio.sleep(options["cleanup_delay"])
         return identity_provider.handle(request)
 
-    from agent.recovery.store import RecoveryStore
+    from recovery_support import SyntheticRecoveryStore as RecoveryStore
 
     recovery = RecoveryStore(config, project=tmp_path)
     recovery.initialize()
+    from response_support import enrolled
+
+    response = enrolled(config, tmp_path, recovery=recovery)
     app = create_workspace_app(
         config,
         port=port,
@@ -112,6 +115,7 @@ def workspace_browser(workspace_settings, identity_provider, request, monkeypatc
         database_reader_factory=factory,
         approval_backend=backend,
         recovery_store=recovery,
+        response_store=response,
     )
     app.state.test_counts = counts
     server = uvicorn.Server(
