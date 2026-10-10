@@ -41,6 +41,7 @@ def test_private_or_non_harness_files_rejected_even_when_force_added(tmp_path, n
     "name",
     [
         "src/agent/main.py",
+        "AGENTS.md",
         "specs/001-feature/spec.md",
         "docs/adr/0001-decision.md",
         ".specify/memory/constitution.md",
@@ -51,7 +52,7 @@ def test_staged_credential_detected_after_worktree_cleaned(tmp_path, name):
     credential = "private-credential-sentinel-value"
     (tmp_path / ".env.local").write_text("VERIFY_CLIENT_SECRET=" + credential)
     target = tmp_path / name
-    target.parent.mkdir(parents=True)
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("VALUE = '" + credential + "'")
     subprocess.run(["git", "add", name], cwd=tmp_path, check=True, capture_output=True)
     target.write_text("VALUE = None")
