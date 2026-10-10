@@ -59,6 +59,12 @@ def publishable(name: str) -> bool:
     }:
         return True
     # Keep the former package path eligible for immutable Git-history checks.
+    if name in {
+        "src/agent/workspace/static/index.html",
+        "src/agent/workspace/static/app.js",
+        "src/agent/workspace/static/style.css",
+    }:
+        return True
     if name.startswith(("src/agent/", "src/pocdantic/")):
         return p.suffix == ".py"
     if name.startswith("tests/"):

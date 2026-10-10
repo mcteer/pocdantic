@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 
 import httpx
 
-from .approval import Approval
+from .approval import Approval, ApprovalOutcome
 from .capabilities import Dependencies
 from .oauth import OAuthClient
 from .probe import oauth_config
@@ -16,7 +16,9 @@ from .verify import VerifyClient, identifier
 class VerifyApprovalBackend:
     settings: Settings = field(repr=False)
 
-    async def __call__(self, deps: Dependencies, approval: Approval, action: Action) -> bool:
+    async def __call__(
+        self, deps: Dependencies, approval: Approval, action: Action
+    ) -> ApprovalOutcome:
         s = self.settings
         if not s.verify_tenant_url or not s.verify_authenticator_id or not s.verify_user_id:
             raise SecurityError("verify_approval_configuration_missing")
@@ -52,6 +54,6 @@ class VerifyApprovalBackend:
             transaction = await client.initiate(
                 s.verify_authenticator_id, factors[0]["id"], approval, action
             )
-            return await client.wait_for_decision(
+            return await client.wait_for_outcome(
                 s.verify_authenticator_id, transaction, approval, deps.approvals
             )

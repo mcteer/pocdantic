@@ -23,6 +23,9 @@ server = ["fastapi>=0.143,<1", "uvicorn>=0.54,<1"]
 postgres = ["psycopg[binary]>=3.2,<4"]
 
 [dependency-groups]
+browser = [
+    "playwright>=1.63.0",
+]
 dev = ["pytest>=9.1,<10", "pytest-asyncio>=1.4,<2", "ruff>=0.17,<1"]
 
 [project.scripts]

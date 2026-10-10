@@ -39,6 +39,11 @@ async def test_invalid_or_missing_auth_rejected_before_runtime(monkeypatch):
         body = {"task": "Retrieve POC-1"}
         assert (await http.post("/runs", json=body)).status_code in {401, 403}
         assert (
+            await http.post(
+                "/runs", json=body, headers={"Cookie": "agent_workspace_8000=" + "x" * 43}
+            )
+        ).status_code in {401, 403}
+        assert (
             await http.post("/runs", json=body, headers={"Authorization": "Bearer forged"})
         ).status_code == 401
         assert (await http.get("/health")).json() == {"status": "ok"}

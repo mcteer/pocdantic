@@ -55,8 +55,7 @@ Authenticated execution requires a signed access JWT with issuer, subject, audie
 expiry, issued-at and an accepted token type. The caller's scopes must include
 `tickets:read`, `infra:write`, or `database:read` for the corresponding tool. JWT keys
 come from trusted provider discovery. Human identity never comes from prompt fields.
-The harness accepts an externally acquired user access token; interactive OIDC login
-and session storage belong to the hosting application and are not implemented here.
+The CLI and bearer service accept an externally acquired user access token. The browser workspace performs its own login and keeps session credentials in server memory.
 
 ```sh
 uv run agent run --task 'Summarize POC-1' --profile parent
@@ -320,3 +319,68 @@ create a new snapshot explicitly. Inspection never retries effects or deletes ev
 
 See the [003 walkthrough](../specs/003-live-evidence-closure/quickstart.md) for the separate
 real database, witnessed phone, source-review and delivery gates.
+
+
+## Browser workspace
+
+1. Install the integrations you use:
+   **uv sync --locked --extra server --extra google --extra postgres --group dev**.
+2. In .env.local, retain your issuer/discovery, OAUTH_AUDIENCE, actor and model settings.
+   Set LOGIN_CLIENT_ID and LOGIN_CLIENT_SECRET to a separate confidential OIDC
+   application. Set LOGIN_SCOPES to openid plus granted task scopes; add
+   offline_access if the provider supports refresh tokens.
+3. Run **uv run agent workspace** (or **--port 8002** if the port is occupied).
+   Register the **exact** printed callback, for example
+   http://127.0.0.1:8000/auth/callback, in that login application.
+4. Open the printed local URL and select **Sign in**. For the database example,
+   choose **database-reader**, enter **Read database record 1**, and select **Run**.
+5. Inspect the status, result and credential cleanup. Keep the job/request/run IDs
+   when correlating private adapter evidence; they contain no identity claims.
+
+The workspace binds only to 127.0.0.1, uses one worker and disables access logging.
+Host, Origin and CSRF checks protect mutations. It is intended for local use.
+Tokens stay in process memory behind an HttpOnly cookie. Browser storage holds no
+credentials or history; untrusted output is displayed as text.
+
+Up to four signed-in sessions are allowed. Sessions expire after 30 minutes without
+a successful user mutation, or eight hours absolutely. Polling does not extend expiry.
+Each retains at most twenty jobs and twenty submission keys, including retry aliases.
+Restart or sign-out clears history after active work drains. Sign-out immediately
+blocks new work and contains the active run while cleanup completes.
+
+Access tokens must have at least TIMEOUT_SECONDS + 45 seconds remaining at admission.
+The workspace attempts renewal once if a refresh token exists; it never changes a token
+mid-run. Configure TIMEOUT_SECONDS from 1 to 180. Cleanup has 30 seconds and five more
+seconds to drain cancellation. Unresolved cleanup quarantines the workspace and blocks
+further work; inspect the private lease before restarting.
+
+Phone approval is a simulated infrastructure effect. Only an explicit native denial is
+shown as denied. Failure, timeout or missing decisions are **unconfirmed**. An eligible
+**Retry approval** sends one fresh prompt for the same frozen action, without another
+model call or replay of earlier tools. Successful, denied, interrupted and uncertain
+cleanup attempts have no retry. There are no browser Approve or Deny controls.
+
+If submission delivery fails, **Check submission** reuses the same UUID and body.
+Reload retrieves retained results. It does not submit another task.
+
+| Symptom | What to do |
+| --- | --- |
+| Missing startup settings | Set the printed setting names in .env.local; install the printed extra command. |
+| Port unavailable | Choose --port 8002, register the newly printed callback, then open that URL. |
+| Sign-in cannot be verified | Check issuer, login application callback, resource audience and granted scopes; start a fresh Sign in. |
+| Token lifetime too short | Increase provider access-token lifetime or reduce TIMEOUT_SECONDS, then sign in again. |
+| Permission denied | Grant the required resource scope to this identity and choose the correct profile. |
+| Database unavailable | Check actor exchange, Vault read role, PostgreSQL TLS and database:read scope. |
+| Approval unconfirmed | Inspect the displayed cleanup and use Retry approval only when offered. |
+| Cleanup failed or unknown | Inspect and revoke the exact lease in private adapter evidence before restarting. |
+| Session capacity reached | Finish active work, sign out of an existing session, then sign in again. |
+
+Browser development checks use synthetic signed identity and Vault responses:
+
+~~~sh
+uv sync --locked --extra server --group dev --group browser
+uv run --group browser playwright install webkit
+uv run --group browser pytest tests/browser -q
+~~~
+
+They establish software behavior; live vendor observations remain separate.

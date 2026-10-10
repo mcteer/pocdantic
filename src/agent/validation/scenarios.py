@@ -116,12 +116,16 @@ async def offline_scenario(label, *, cleanup_timeout=30, runtime_options=None):
         approval = deps.approvals.create(
             principal.subject, deps.run_id, action, ttl=-1 if label == "approval-expired" else 120
         )
-        deps.approvals.record_decision(
-            approval.id,
-            approved=label != "approval-denied",
-            approver=principal.subject,
-            source_event="offline-decision",
-        )
+        try:
+            deps.approvals.record_decision(
+                approval.id,
+                approved=label != "approval-denied",
+                approver=principal.subject,
+                source_event="offline-decision",
+            )
+        except SecurityError:
+            if label != "approval-expired":
+                raise
         if label == "approval-replay":
             execute_simulated_write(deps, approval.id, action)
         before = sum(e["event"] == "infra.write" for e in deps.audit.events)

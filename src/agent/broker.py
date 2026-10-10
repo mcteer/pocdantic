@@ -51,7 +51,6 @@ class DatabaseBroker:
             "actor_verified": ("identity", "verified"),
             "read_delegation_verified": ("credential", "verified"),
             "cleanup_delegation_verified": ("cleanup", "verified"),
-            "lease_acquired": ("credential", "acquired"),
             "database_read_completed": ("database", "completed"),
             "lease_revoked": ("cleanup", "revoked"),
         }

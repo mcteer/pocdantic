@@ -74,6 +74,8 @@ class VaultClient:
                     observer.finish_operation(binding)
                 raise SecurityError(f"vault_http_{response.status_code}")
             data = response.json() if response.content else {}
+            if not isinstance(data, dict):
+                raise ValueError("invalid Vault response")
             if observer and binding:
                 observer.finish_operation(
                     binding,
@@ -111,14 +113,27 @@ class VaultClient:
         *,
         revoke: Callable[[str], Awaitable[None]] | None = None,
         cleanup_timeout: float = 30,
+        cleanup_drain_timeout: float = 5,
     ):
         if not path.startswith("database/creds/"):
             raise SecurityError("vault_credential_path")
-        result = await self.read(token, path)
+        try:
+            result = await self.read(token, path)
+        except BaseException as error:
+            if self.operation_observer and not (
+                isinstance(error, SecurityError)
+                and str(error) in {"vault_http_401", "vault_http_403"}
+            ):
+                self.operation_observer.fact("credential_uncertain")
+            raise
         # Obtain revocation handle first: malformed credentials must still be cleaned up.
         lease_id = result.get("lease_id")
         if not isinstance(lease_id, str) or not lease_id:
+            if self.operation_observer:
+                self.operation_observer.fact("credential_uncertain")
             raise SecurityError("vault_lease_missing")
+        if self.operation_observer:
+            self.operation_observer.record("credential", "acquired")
         try:
             try:
                 lease = Lease(
@@ -131,26 +146,53 @@ class VaultClient:
                 raise SecurityError("vault_lease_invalid") from None
             yield lease
         finally:
-            # Cancellation cannot drop cleanup; HTTP client remains open until completion.
+            # Keep the client and revocation token alive until the child actually stops.
+            observer = self.operation_observer
+            if observer:
+                observer.fact("cleanup_pending")
             cleanup = asyncio.create_task(
                 revoke(lease_id) if revoke else self.revoke(token, lease_id)
             )
             deadline = asyncio.get_running_loop().time() + cleanup_timeout
             interrupted = False
+            timed_out = False
             while not cleanup.done():
                 remaining = deadline - asyncio.get_running_loop().time()
                 if remaining <= 0:
-                    cleanup.cancel()
-                    raise SecurityError("cleanup_failed")
+                    if not timed_out:
+                        timed_out = True
+                        cleanup.cancel()
+                        deadline = asyncio.get_running_loop().time() + cleanup_drain_timeout
+                        continue
+                    if observer:
+                        observer.fact("cleanup_unknown")
+                    # No further admission; retaining this frame retains private cleanup context.
+                    remaining = 1
                 try:
                     await asyncio.wait_for(asyncio.shield(cleanup), remaining)
                 except asyncio.CancelledError:
+                    if cleanup.done():
+                        break
                     interrupted = True
-                    # Repeated cancellation cannot cancel the separate cleanup task.
                 except TimeoutError:
-                    cleanup.cancel()
-                    raise SecurityError("cleanup_failed") from None
-            cleanup.result()
+                    continue
+                except Exception:
+                    break
+            if timed_out or cleanup.cancelled():
+                if not cleanup.cancelled():
+                    try:
+                        cleanup.result()
+                    except Exception:
+                        pass
+                if observer:
+                    observer.fact("cleanup_failed")
+                raise SecurityError("cleanup_failed") from None
+            try:
+                cleanup.result()
+            except Exception:
+                if observer:
+                    observer.fact("cleanup_failed")
+                raise SecurityError("cleanup_failed") from None
             if interrupted:
                 raise asyncio.CancelledError
 

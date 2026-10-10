@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 import httpx
 from pydantic import SecretStr
 
-from .approval import Approval, ApprovalStore
+from .approval import Approval, ApprovalOutcome, ApprovalStore
 from .schemas import Action
 from .security import SecurityError
 
@@ -133,7 +133,7 @@ class VerifyClient:
         except (KeyError, TypeError):
             raise SecurityError("verify_transaction_invalid") from None
 
-    async def wait_for_decision(
+    async def _wait_for_outcome(
         self,
         authenticator_id: str,
         transaction_id: str,
@@ -142,7 +142,7 @@ class VerifyClient:
         *,
         timeout: float = 120,
         poll: float = 2,
-    ) -> bool:
+    ) -> ApprovalOutcome:
         self.approval_context = approval
         deadline = min(approval.expires_at, time.monotonic() + timeout)
         path = (
@@ -180,17 +180,8 @@ class VerifyClient:
                     approver=approval.subject,
                     source_event=transaction_id,
                 )
-                return True
-            if state in {
-                "DENIED",
-                "FAILED",
-                "CANCELED",
-                "TIMEOUT",
-                "VERIFY_FAILED",
-                "VERIFY_DENIED",
-                "USER_DENIED",
-                "EXPIRED",
-            }:
+                return ApprovalOutcome("approved")
+            if state in {"DENIED", "VERIFY_DENIED", "USER_DENIED"}:
                 self.capture_transaction(approval, data, False)
                 store.record_decision(
                     approval.id,
@@ -198,8 +189,28 @@ class VerifyClient:
                     approver=approval.subject,
                     source_event=transaction_id,
                 )
-                return False
+                return ApprovalOutcome("denied")
+            if state in {"FAILED", "CANCELED", "TIMEOUT", "VERIFY_FAILED", "EXPIRED"}:
+                self.capture_transaction(approval, data, False)
+                store.invalidate(approval.id, "unconfirmed")
+                return ApprovalOutcome("unconfirmed")
             if state not in {"PENDING", "VERIFY_PENDING"}:
                 raise SecurityError("verify_transaction_state")
             await asyncio.sleep(min(poll, max(0, deadline - time.monotonic())))
-        return False
+        store.invalidate(approval.id, "unconfirmed")
+        return ApprovalOutcome("unconfirmed")
+
+    async def wait_for_outcome(
+        self, authenticator_id, transaction_id, approval, store, **kwargs
+    ) -> ApprovalOutcome:
+        try:
+            return await self._wait_for_outcome(
+                authenticator_id, transaction_id, approval, store, **kwargs
+            )
+        except BaseException:
+            store.invalidate(approval.id)
+            raise
+
+    async def wait_for_decision(self, *args, **kwargs) -> bool:
+        """Compatibility adapter; false does not establish a native denial."""
+        return bool(await self.wait_for_outcome(*args, **kwargs))

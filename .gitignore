@@ -40,3 +40,8 @@ Thumbs.db
 *.swp
 .vscode/
 .idea/
+
+# Browser/private workspace diagnostics
+playwright-report/
+test-results/
+*.trace.zip

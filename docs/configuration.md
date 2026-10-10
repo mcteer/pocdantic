@@ -37,6 +37,20 @@ Agent OAuth credentials and administrative Verify API credentials serve differen
 | `OAUTH_AUTH_METHOD` | `client_secret_post` |
 | `BEARER_TOKEN` | Unset |
 
+## Browser sign-in
+
+| Variable | Default |
+| --- | --- |
+| LOGIN_CLIENT_ID | Unset; required by workspace |
+| LOGIN_CLIENT_SECRET | Unset; required by workspace |
+| LOGIN_SCOPES | openid |
+
+Use a separate confidential OIDC application; retain the actor's OAUTH_CLIENT_*
+credentials. POCDANTIC_LOGIN_* aliases remain supported. Add only scopes the
+provider grants, including offline_access for renewal where supported.
+The application must issue the configured OAUTH_AUDIENCE and accept code/S256 PKCE.
+No cookie, session, browser URL or refresh environment setting is needed.
+
 ## Phone approval
 
 | Variable | Default |

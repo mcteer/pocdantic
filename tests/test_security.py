@@ -68,7 +68,10 @@ def test_approval_mutation_replay_expiry_and_wrong_user():
     with pytest.raises(SecurityError):
         store.consume(approval.id, "user", run, action)
     expired = store.create("user", run, action, ttl=-1)
-    store.record_decision(expired.id, approved=True, approver="user", source_event="trusted-event")
+    with pytest.raises(SecurityError):
+        store.record_decision(
+            expired.id, approved=True, approver="user", source_event="trusted-event"
+        )
     with pytest.raises(SecurityError):
         store.consume(expired.id, "user", run, action)
 
@@ -109,3 +112,26 @@ def test_expired_identity_cannot_execute_tools():
     p = principal().model_copy(update={"expires_at": 1})
     with pytest.raises(SecurityError, match="identity_expired"):
         Policy().authorize(p, "ticket-reader", Action(operation="ticket.read", resource="POC-1"))
+
+
+def test_terminal_approval_cannot_accept_late_success():
+    store = ApprovalStore()
+    run = uuid4()
+    action = Action(
+        operation="infra.write", resource="sandbox/demo", parameters={"change": "restart"}
+    )
+    approval = store.create("user", run, action)
+    store.invalidate_run(run)
+    with pytest.raises(SecurityError):
+        store.record_decision(approval.id, approved=True, approver="user", source_event="late")
+    assert approval.state == "cancelled"
+
+
+def test_expired_decision_is_rejected_at_record_time():
+    store = ApprovalStore()
+    action = Action(
+        operation="infra.write", resource="sandbox/demo", parameters={"change": "restart"}
+    )
+    approval = store.create("user", uuid4(), action, ttl=-1)
+    with pytest.raises(SecurityError):
+        store.record_decision(approval.id, approved=True, approver="user", source_event="late")
