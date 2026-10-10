@@ -101,3 +101,8 @@ short control-lock contention in the WebKit release fixture (558 pass, one failu
 The fixture now retries only the documented `response_busy` result for up to two
 seconds; navigation does not drain a server request already in flight. Production
 locking and stale/unsafe-release assertions remain unchanged. CI is rerun on the fix.
+
+The next CI rerun identified two additional fixture races: reload before sign-out
+completion, and synthetic recovery intent competing with journal inspection. WebKit
+now waits for the signed-out UI before reloading; recovery fixtures retry only busy
+journal locks before synthetic intent/inspection, never provider cleanup or proof.

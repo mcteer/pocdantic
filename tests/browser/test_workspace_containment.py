@@ -65,6 +65,7 @@ def test_root_hold_details_and_unrelated_admission(workspace_browser):
     finally:
         foreign.close()
     page.get_by_role("button", name="Sign out", exact=True).click()
+    expect(page.locator("#session-status")).to_have_text("Sign in to run a task")
     page.reload()
     expect(page.locator("#session-status")).to_have_text("Sign in to run a task")
     view = page.evaluate("fetch('/workspace/operations').then(r=>r.json())")
