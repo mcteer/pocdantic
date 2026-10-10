@@ -160,6 +160,24 @@ class BoundObserver:
             self.failed = True
             return False
 
+    def fact(self, name, **private):
+        """Trusted in-process facts; never copied into lifecycle or telemetry fields."""
+        callback = getattr(self.sink, "fact", None)
+        if callback:
+            try:
+                callback(name, **private)
+            except Exception:
+                self.failed = True
+                if name in {
+                    "cleanup_pending",
+                    "cleanup_failed",
+                    "cleanup_unknown",
+                    "credential_uncertain",
+                }:
+                    return False
+                raise ValueError("storage_error") from None
+        return True
+
     def scope(self, phase):
         if not self.telemetry:
             return nullcontext()

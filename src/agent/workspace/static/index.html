@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent workspace</title>
+  <link rel="stylesheet" href="/assets/style.css">
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+<main>
+  <header>
+    <p class="eyebrow">LOCAL WORKSPACE</p>
+    <h1>Agent</h1>
+    <p>Sign in, run a task, and inspect its result.</p>
+    <div>
+      <button id="login">Sign in</button>
+      <button id="logout" hidden>Sign out</button>
+      <span id="session-status" role="status">Loading…</span>
+    </div>
+  </header>
+  <p id="error" role="alert" tabindex="-1" hidden></p>
+  <section id="workspace" hidden>
+    <form id="task-form">
+      <label for="task">Task</label>
+      <textarea id="task" maxlength="8000" required rows="4"
+                placeholder="Read database record 1"></textarea>
+      <label for="profile">Profile</label>
+      <select id="profile"></select>
+      <button id="run" type="submit">Run</button>
+    </form>
+    <p>For the example read, choose database-reader and enter Read database record 1.
+       Infrastructure actions are simulated.</p>
+    <p id="issues"></p>
+    <section aria-labelledby="result-heading">
+      <h2 id="result-heading" tabindex="-1">Current task</h2>
+      <p id="status" role="status" aria-live="polite">No task yet</p>
+      <p id="correlation"></p>
+      <p id="cleanup"></p>
+      <p id="action"></p>
+      <pre id="result"></pre>
+      <button id="retry" hidden>Retry approval</button>
+    </section>
+    <section>
+      <h2>Earlier tasks</h2>
+      <ul id="history"></ul>
+    </section>
+  </section>
+</main>
+</body>
+</html>

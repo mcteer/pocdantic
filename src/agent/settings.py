@@ -49,6 +49,24 @@ class Settings(BaseSettings):
         ),
         repr=False,
     )
+    login_client_id: str | None = Field(default=None, repr=False)
+    login_client_secret: SecretStr | None = Field(default=None, repr=False)
+    login_scopes: str = "openid"
+
+    @field_validator("login_scopes")
+    @classmethod
+    def scopes(cls, value):
+        parts = value.split()
+        if (
+            any(ord(c) < 32 and c != " " for c in value)
+            or "openid" not in parts
+            or not 1 <= len(parts) <= 32
+            or len(set(parts)) != len(parts)
+            or any(not 1 <= len(p) <= 128 for p in parts)
+        ):
+            raise ValueError("Invalid login scopes")
+        return " ".join(parts)
+
     oauth_auth_method: Literal["client_secret_basic", "client_secret_post"] = "client_secret_post"
     verify_tenant_url: str | None = Field(
         default=None, validation_alias="VERIFY_TENANT_URL", repr=False

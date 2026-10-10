@@ -5,11 +5,12 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
+import httpx
 from pydantic_ai import RunContext
 from pydantic_ai.capabilities import AbstractCapability, Capability
 from pydantic_ai.usage import UsageLimits
 
-from .approval import Approval, ApprovalStore, action_digest
+from .approval import Approval, ApprovalOutcome, ApprovalStore, action_digest
 from .observability import BoundObserver
 from .schemas import Action, AgentOutput, Principal, Ticket, TicketId, WriteResult
 from .security import Audit, Containment, Policy, SecurityError
@@ -35,9 +36,9 @@ class Dependencies:
     parent_run_id: UUID | None = None
     delegation_depth: int = 0
     policy_role: str | None = None
-    approval_backend: Callable[["Dependencies", Approval, Action], Awaitable[bool]] | None = field(
-        default=None, repr=False
-    )
+    approval_backend: (
+        Callable[["Dependencies", Approval, Action], Awaitable[ApprovalOutcome | bool]] | None
+    ) = field(default=None, repr=False)
     database_reader: Callable[[int], Awaitable[list[dict]]] | None = field(default=None, repr=False)
 
     def check_containment(self) -> None:
@@ -165,21 +166,71 @@ def simulated_infrastructure() -> Capability[Dependencies]:
         action = Action(
             operation="infra.write", resource="sandbox/demo", parameters={"change": "restart"}
         )
-        ctx.deps.authorize(action)
-        approval = ctx.deps.approvals.create(ctx.deps.principal.subject, ctx.deps.run_id, action)
-        ctx.deps.record("approval", "pending")
-        if ctx.deps.approval_backend is not None:
-            approved = await ctx.deps.approval_backend(ctx.deps, approval, action)
-            if not approved:
-                ctx.deps.record("approval", "denied")
-                raise SecurityError("approval_denied_or_expired")
-            ctx.deps.record("approval", "completed")
-            return execute_simulated_write(ctx.deps, approval.id, action)
+        return await request_simulated_action(ctx.deps, action)
+
+    return capability
+
+
+async def request_simulated_action(deps: Dependencies, action: Action) -> WriteResult:
+    """Shared trusted path for the model tool and exact-action retry."""
+    action = Action.model_validate_json(action.model_dump_json())
+    deps.authorize(action)
+    approval = deps.approvals.create(deps.principal.subject, deps.run_id, action)
+    deps.record("approval", "pending")
+    if deps.observer:
+        deps.observer.fact(
+            "approval_started",
+            approval=approval,
+            action=action,
+            principal=deps.principal,
+            profile=deps.logical_agent,
+        )
+    if deps.approval_backend is None:
         return WriteResult(
             status="approval_required", approval_id=approval.id, action_digest=approval.digest
         )
-
-    return capability
+    try:
+        outcome = await deps.approval_backend(deps, approval, action)
+        if not isinstance(outcome, ApprovalOutcome):
+            outcome = ApprovalOutcome(
+                "approved" if outcome else "denied" if approval.state == "denied" else "unconfirmed"
+            )
+        if deps.observer:
+            deps.observer.fact("approval_decision", decision=outcome.decision)
+        if outcome.decision != "approved":
+            deps.approvals.invalidate(approval.id, "unconfirmed")
+            deps.record("approval", "denied" if outcome.decision == "denied" else "failed")
+            raise SecurityError(
+                "approval_denied" if outcome.decision == "denied" else "approval_unconfirmed"
+            )
+        deps.record("approval", "completed")
+        return execute_simulated_write(deps, approval.id, action)
+    except SecurityError as error:
+        code = str(error)
+        if code == "verify_request_failed" or (
+            code.startswith("verify_http_") and code.removeprefix("verify_http_").startswith("5")
+        ):
+            deps.approvals.invalidate(approval.id, "unconfirmed")
+            if deps.observer:
+                deps.observer.fact("approval_decision", decision="unconfirmed")
+            raise SecurityError("approval_unconfirmed") from None
+        deps.approvals.invalidate(approval.id)
+        if code.startswith("oauth_") or code in {
+            "verify_approval_configuration_missing",
+            "verify_http_401",
+            "verify_http_403",
+            "verify_signing_factor_missing",
+        }:
+            raise SecurityError("approval_unavailable") from None
+        raise
+    except (httpx.HTTPError, TimeoutError):
+        deps.approvals.invalidate(approval.id, "unconfirmed")
+        if deps.observer:
+            deps.observer.fact("approval_decision", decision="unconfirmed")
+        raise SecurityError("approval_unconfirmed") from None
+    except BaseException:
+        deps.approvals.invalidate(approval.id)
+        raise
 
 
 class ContainmentCapability(AbstractCapability[Dependencies]):
@@ -217,6 +268,8 @@ def execute_simulated_write(deps: Dependencies, approval_id: UUID, action: Actio
     """Trusted caller only: exact action rechecked immediately before one-time consumption."""
     deps.authorize(action)
     deps.approvals.consume(approval_id, deps.principal.subject, deps.run_id, action)
+    if deps.observer:
+        deps.observer.fact("simulated_write")
     deps.record("infra.write", "simulated")
     return WriteResult(
         status="simulated",

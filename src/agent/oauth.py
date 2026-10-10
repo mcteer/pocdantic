@@ -37,9 +37,13 @@ class OAuthConfig(BaseModel):
 
 
 class TokenResponse(BaseModel):
-    access_token: SecretStr = Field(repr=False)
+    access_token: SecretStr = Field(repr=False, min_length=1, max_length=65536)
+    refresh_token: SecretStr | None = Field(
+        default=None, repr=False, min_length=1, max_length=65536
+    )
+    id_token: SecretStr | None = Field(default=None, repr=False, min_length=1, max_length=65536)
     token_type: str
-    expires_in: int | None = None
+    expires_in: int | None = Field(default=None, ge=0)
     issued_token_type: str | None = None
 
 
@@ -96,6 +100,8 @@ class OAuthClient:
             response = await self.http.post(self.validate_endpoint(endpoint), data=data, auth=auth)
             if response.is_error:
                 raise SecurityError(f"oauth_http_{response.status_code}")
+            if len(response.content) > 262144:
+                raise SecurityError("oauth_response_size")
             token = TokenResponse.model_validate(response.json())
             if token.token_type.lower() != "bearer" or token.issued_token_type not in {
                 None,
@@ -122,6 +128,11 @@ class OAuthClient:
                 "code_verifier": verifier,
                 "redirect_uri": redirect_uri,
             }
+        )
+
+    async def refresh(self, token: SecretStr) -> TokenResponse:
+        return await self._token(
+            {"grant_type": "refresh_token", "refresh_token": token.get_secret_value()}
         )
 
     async def exchange_details(

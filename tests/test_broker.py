@@ -241,7 +241,7 @@ async def test_injected_transport_remains_caller_owned(chain):
 async def test_cleanup_rejects_unexpected_lease_scope(chain, lease_id):
     state, make_broker = chain
     state["lease_id"] = lease_id
-    with pytest.raises(SecurityError, match="vault_lease_scope_invalid"):
+    with pytest.raises(SecurityError, match="cleanup_failed"):
         await make_broker()(1)
     assert len(state["exchanges"]) == 1
     assert len(state["vault"]) == 1

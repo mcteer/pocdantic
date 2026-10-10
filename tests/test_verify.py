@@ -65,7 +65,7 @@ async def test_mismatched_push_result_denied(mutation):
         client = VerifyClient("https://verify.example", SecretStr("private-token"), http)
         with pytest.raises(SecurityError):
             await client.wait_for_decision("device", "transaction", approval, store)
-    assert approval.state == "pending"
+    assert approval.state == "cancelled"
 
 
 @pytest.mark.parametrize("state", ["DENIED", "VERIFY_DENIED", "USER_DENIED"])
@@ -114,7 +114,7 @@ async def test_failed_pre_request_binding_prohibits_push():
     assert calls == []
 
 
-async def test_capture_failure_leaves_approval_pending():
+async def test_capture_failure_terminalizes_without_recording_decision():
     from types import SimpleNamespace
 
     store = ApprovalStore()
@@ -145,4 +145,66 @@ async def test_capture_failure_leaves_approval_pending():
         )
         with pytest.raises(SecurityError, match="storage_error"):
             await client.wait_for_decision("device", "transaction", approval, store)
-    assert approval.state == "pending"
+    assert approval.state == "cancelled"
+
+
+@pytest.mark.parametrize("state", ["FAILED", "VERIFY_FAILED", "CANCELED", "TIMEOUT", "EXPIRED"])
+async def test_native_failure_is_unconfirmed_not_denied(state):
+    store = ApprovalStore()
+    approval = store.create("user", uuid4(), action())
+    payload = {
+        "id": "transaction",
+        "state": state,
+        "transactionData": {
+            "additionalData": [
+                {"name": "approval_id", "value": str(approval.id)},
+                {"name": "action_digest", "value": approval.digest},
+            ]
+        },
+    }
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json=payload))
+    ) as h:
+        outcome = await VerifyClient(
+            "https://verify.example", SecretStr("token"), h
+        ).wait_for_outcome("device", "transaction", approval, store)
+    assert outcome.decision == "unconfirmed"
+    assert approval.state == "unconfirmed"
+
+
+async def test_poll_deadline_terminalizes_pending_approval():
+    store = ApprovalStore()
+    approval = store.create("user", uuid4(), action())
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: (_ for _ in ()).throw(AssertionError("network")))
+    ) as h:
+        result = await VerifyClient(
+            "https://verify.example", SecretStr("token"), h
+        ).wait_for_outcome("device", "transaction", approval, store, timeout=0)
+    assert result.decision == "unconfirmed" and approval.state == "unconfirmed"
+
+
+async def test_cancelled_poll_rejects_late_native_success():
+    import asyncio
+
+    store = ApprovalStore()
+    approval = store.create("user", uuid4(), action())
+    entered = asyncio.Event()
+
+    async def pending(request):
+        entered.set()
+        await asyncio.sleep(10)
+        raise AssertionError("cancelled transport resumed")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(pending)) as http:
+        client = VerifyClient("https://verify.example", SecretStr("token"), http)
+        task = asyncio.create_task(
+            client.wait_for_outcome("device", "transaction", approval, store)
+        )
+        await entered.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    assert approval.state == "cancelled"
+    with pytest.raises(SecurityError):
+        store.record_decision(approval.id, approved=True, approver="user", source_event="late")

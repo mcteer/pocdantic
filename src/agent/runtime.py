@@ -1,8 +1,8 @@
 import asyncio
 import json
 import time
-from dataclasses import replace
-from uuid import uuid4
+from dataclasses import dataclass, replace
+from uuid import UUID, uuid4
 
 from opentelemetry.context import Context
 from pydantic import TypeAdapter
@@ -63,6 +63,12 @@ def build_agent(
     )
 
 
+@dataclass(frozen=True)
+class RunContext:
+    request_id: UUID
+    run_id: UUID
+
+
 class Runtime:
     def __init__(
         self,
@@ -94,6 +100,19 @@ class Runtime:
         self.database_reader = database_reader
         self.approval_backend = approval_backend
         self._active: dict = {}
+        self._reserved: dict[UUID, RunContext] = {}
+
+    def reserve(self, request_id: UUID) -> RunContext:
+        context = RunContext(request_id, uuid4())
+        self._reserved[context.run_id] = context
+        return context
+
+    def forget(self, run_id: UUID) -> None:
+        if run_id in self._active:
+            raise SecurityError("run_active")
+        self._reserved.pop(run_id, None)
+        self.approvals.forget_run(run_id)
+        self.containment.blocked_runs.discard(run_id)
 
     def contain_run(self, run_id) -> None:
         """Trusted control-plane entry point, not a model tool or public endpoint."""
@@ -117,6 +136,10 @@ class Runtime:
         with tracer.start_as_current_span("run", context=Context(), attributes=attributes):
             return await self._run(request, principal, **kwargs)
 
+    async def run_action(self, request, principal, action, *, run_context):
+        """Trusted exact-action entry point; no model or earlier tool replay."""
+        return await self.run(request, principal, run_context=run_context, _action=action)
+
     async def _run(
         self,
         request: RequestEnvelope,
@@ -124,8 +147,19 @@ class Runtime:
         *,
         database_reader=None,
         message_history: list[ModelMessage] | None = None,
+        run_context: RunContext | None = None,
+        _action=None,
     ) -> AgentResponse:
-        run_id = uuid4()
+        if run_context is not None:
+            if (
+                self._reserved.get(run_context.run_id) is not run_context
+                or run_context.request_id != request.request_id
+            ):
+                raise SecurityError("run_context_invalid")
+            self._reserved.pop(run_context.run_id)
+            run_id = run_context.run_id
+        else:
+            run_id = uuid4()
         from opentelemetry.trace import get_current_span
 
         get_current_span().set_attribute("run_id", str(run_id))
@@ -188,25 +222,43 @@ class Runtime:
             deps.record("run", "started")
             self._active[run_id] = (request.profile, asyncio.current_task())
             async with asyncio.timeout(self.settings.timeout_seconds):
-                result = await self.agents[request.profile].run(
-                    request.task,
-                    deps=deps,
-                    message_history=message_history,
-                    usage_limits=limits,
-                    metadata={
-                        "request_id": str(request.request_id),
-                        "run_id": str(run_id),
-                        "agent_definition": request.profile,
-                        "workload_definition": self.settings.workload_definition,
-                    },
-                )
+                if _action is not None:
+                    from .capabilities import request_simulated_action
+
+                    if (
+                        "simulated-infrastructure"
+                        not in self.definitions[request.profile].capabilities
+                    ):
+                        raise SecurityError("profile_unavailable")
+                    await request_simulated_action(deps, _action)
+                    result = None
+                else:
+                    result = await self.agents[request.profile].run(
+                        request.task,
+                        deps=deps,
+                        message_history=message_history,
+                        usage_limits=limits,
+                        metadata={
+                            "request_id": str(request.request_id),
+                            "run_id": str(run_id),
+                            "agent_definition": request.profile,
+                            "workload_definition": self.settings.workload_definition,
+                        },
+                    )
             self.containment.check(self.settings.workload_definition, run_id)
             if message_history is not None:
-                message_history[:] = result.all_messages()
+                if result is not None:
+                    message_history[:] = result.all_messages()
             deps.record("run", "completed")
             if observer.failed:
                 return AgentResponse(**common, status="failed", error_code="storage_error")
-            return AgentResponse(**common, status="completed", output=result.output)
+            return AgentResponse(
+                **common,
+                status="completed",
+                output=result.output
+                if result
+                else AgentOutput(summary="Completed simulated restart"),
+            )
         except SecurityError as error:
             deps.record("run", "denied")
             return AgentResponse(**common, status="denied", error_code=str(error))
@@ -222,4 +274,5 @@ class Runtime:
             deps.record("run", "failed")
             return AgentResponse(**common, status="failed", error_code="agent_run_failed")
         finally:
+            self.approvals.invalidate_run(run_id)
             self._active.pop(run_id, None)

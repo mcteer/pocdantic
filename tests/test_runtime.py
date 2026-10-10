@@ -210,3 +210,16 @@ async def test_host_owned_history_preserves_context_without_reusing_authority():
         RequestEnvelope(task="Continue again"), user(), message_history=history
     )
     assert denied.status == "denied" and history == before
+
+
+async def test_reserved_context_is_fresh_and_prestart_containment_works():
+    runtime = Runtime(Settings(_env_file=None), model=demo_model())
+    request = RequestEnvelope(task="read")
+    context = runtime.reserve(request.request_id)
+    runtime.contain_run(context.run_id)
+    result = await runtime.run(request, user(), run_context=context)
+    assert result.run_id == context.run_id and result.status == "denied"
+    from agent.security import SecurityError
+
+    with pytest.raises(SecurityError):
+        await runtime.run(request, user(), run_context=context)

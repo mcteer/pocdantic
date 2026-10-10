@@ -1,0 +1,396 @@
+"""Single-slot execution with session ownership and trusted, bounded projections."""
+
+import asyncio
+from dataclasses import dataclass, field
+from uuid import uuid4
+
+from agent.broker import DatabaseBroker
+from agent.observability import NullSink
+from agent.schemas import Action, RequestEnvelope
+from agent.security import SecurityError
+from agent.services import VerifyApprovalBackend
+from agent.workspace.models import JobView, WorkflowError, now
+
+
+@dataclass(repr=False)
+class Candidate:
+    action: bytes
+    issuer: str
+    subject: str
+    profile: str
+    approval_id: object
+    child: object = None
+
+
+@dataclass(repr=False)
+class Job:
+    view: JobView
+    request: RequestEnvelope
+    context: object
+    session: object
+    snapshot: object = None
+    events: list = field(default_factory=list)
+    candidates: list = field(default_factory=list)
+    writes: int = 0
+    acquired: int = 0
+    revoked: int = 0
+    reads: int = 0
+    uncertain: bool = False
+    stopped: bool = False
+    worker: object = None
+
+
+class MemorySink:
+    def __init__(self, manager, job):
+        self.manager, self.job = manager, job
+
+    def emit(self, event):
+        job = self.job
+        job.events.append(event)
+        del job.events[:-1000]
+        if event.phase == "database" and event.detail == "completed":
+            job.reads += 1
+        if event.phase == "cleanup" and event.detail in {"attempted", "started"}:
+            job.view.state = "cleaning_up"
+        if event.phase == "credential" and event.detail == "acquired":
+            job.acquired += 1
+            job.view.cleanup_status = "pending"
+        if event.phase == "cleanup" and event.detail == "revoked":
+            job.revoked += 1
+            job.view.cleanup_status = "revoked" if job.revoked == job.acquired else "pending"
+
+    def fact(self, name, **private):
+        job = self.job
+        if name == "approval_started":
+            approval, action, principal = (
+                private["approval"],
+                private["action"],
+                private["principal"],
+            )
+            job.candidates.append(
+                Candidate(
+                    action.model_dump_json().encode(),
+                    principal.issuer,
+                    principal.subject,
+                    private["profile"],
+                    approval.id,
+                )
+            )
+            job.view.approval_status = "pending"
+            job.view.action_summary = "Simulated restart of sandbox/demo"
+            job.view.state = "waiting_for_approval"
+        elif name == "approval_decision":
+            job.view.approval_status = private["decision"]
+            job.view.state = "running"
+        elif name == "simulated_write":
+            job.writes += 1
+        elif name == "cleanup_unknown":
+            job.view.cleanup_status = "unknown"
+            job.view.state = "cleaning_up"
+            job.uncertain = True
+            self.manager.quarantined = True
+        elif name == "cleanup_pending":
+            job.view.state = "cleaning_up"
+        elif name == "cleanup_failed":
+            if job.view.cleanup_status != "unknown":
+                job.view.cleanup_status = "failed"
+            job.uncertain = True
+        elif name == "credential_uncertain":
+            job.view.cleanup_status = "unknown"
+            job.uncertain = True
+            self.manager.quarantined = True
+
+    def bind(self, binding):
+        # No private bindings are retained by the browser workspace.
+        pass
+
+
+class RunsManager:
+    def __init__(
+        self, runtime, auth, store, *, database_reader_factory=None, approval_backend=None
+    ):
+        self.runtime, self.auth, self.store = runtime, auth, store
+        self.database_reader_factory = database_reader_factory
+        self.backend = approval_backend
+        self.owner = None
+        self.quarantined = False
+        self.worker = None
+        store.on_close = self.close_session
+
+    @property
+    def busy(self):
+        return self.owner is not None or self.quarantined
+
+    def get(self, session, job_id):
+        job = session.jobs.get(job_id)
+        if not job:
+            raise SecurityError("run_not_found")
+        return job
+
+    def _duplicate(self, session, key, payload):
+        previous = session.submissions.get(key)
+        if previous:
+            old, job = previous
+            if old != payload:
+                raise SecurityError("submission_conflict")
+            return job
+
+    def _capacity(self, session):
+        if len(session.jobs) >= 20 or len(session.submissions) >= 20:
+            raise SecurityError("capacity_exceeded")
+
+    async def submit(self, session, value):
+        payload = ("task", value.task, value.profile)
+        duplicate = self._duplicate(session, value.submission_id, payload)
+        if duplicate:
+            return duplicate
+        self._capacity(session)
+        if value.profile not in self.runtime.definitions:
+            raise SecurityError("profile_unavailable")
+        return await self._start(
+            session,
+            value.submission_id,
+            payload,
+            RequestEnvelope(task=value.task, profile=value.profile),
+        )
+
+    async def retry(self, session, parent_id, value):
+        parent = self.get(session, parent_id)
+        payload = ("retry", parent_id)
+        duplicate = self._duplicate(session, value.submission_id, payload)
+        if duplicate:
+            return duplicate
+        if len(session.submissions) >= 20:
+            raise SecurityError("capacity_exceeded")
+        if len(parent.candidates) == 1 and parent.candidates[0].child:
+            child = parent.candidates[0].child
+            session.submissions[value.submission_id] = (payload, child)
+            return child
+        if (
+            not parent.view.retry_available
+            or len(parent.candidates) != 1
+            or parent.writes
+            or parent.uncertain
+            or parent.stopped
+            or parent.view.cleanup_status not in {"not_acquired", "revoked"}
+            or parent.acquired != parent.revoked
+        ):
+            raise SecurityError("retry_unavailable")
+        self._capacity(session)
+        candidate = parent.candidates[0]
+        return await self._start(
+            session,
+            value.submission_id,
+            payload,
+            RequestEnvelope(task="Retry confirmed action", profile=candidate.profile),
+            parent=parent,
+            candidate=candidate,
+        )
+
+    async def _start(self, session, key, payload, request, *, parent=None, candidate=None):
+        if self.quarantined:
+            raise SecurityError("workspace_unavailable")
+        if self.owner is not None:
+            raise SecurityError("workspace_busy")
+        if session.state != "active":
+            raise SecurityError("sign_in_required")
+        context = self.runtime.reserve(request.request_id)
+        job = Job(
+            JobView(
+                job_id=uuid4(),
+                request_id=request.request_id,
+                run_id=context.run_id,
+                parent_job_id=parent.view.job_id if parent else None,
+                kind="approval_retry" if parent else "task",
+            ),
+            request,
+            context,
+            session,
+        )
+        self.owner = job
+        session.jobs[job.view.job_id] = job
+        session.submissions[key] = (payload, job)
+        try:
+            job.snapshot = await self.auth.admit(session)
+            if session.state != "active" or job.stopped:
+                raise SecurityError("sign_in_required")
+            if candidate:
+                principal = job.snapshot.principal
+                if (principal.issuer, principal.subject) != (candidate.issuer, candidate.subject):
+                    raise SecurityError("retry_unavailable")
+                definition = self.runtime.definitions.get(candidate.profile)
+                if not definition or "simulated-infrastructure" not in definition.capabilities:
+                    raise SecurityError("retry_unavailable")
+                self.runtime.policy.authorize(
+                    principal, definition.policy_role, Action.model_validate_json(candidate.action)
+                )
+                candidate.child = job
+                parent.view.retry_available = False
+                self.runtime.approvals.invalidate(candidate.approval_id, "superseded")
+            self.store.touch(session)
+            job.worker = asyncio.create_task(self._execute(job, candidate))
+            self.worker = job.worker
+            return job
+        except BaseException:
+            session.jobs.pop(job.view.job_id, None)
+            session.submissions.pop(key, None)
+            self.runtime.forget(context.run_id)
+            self.owner = None
+            raise
+
+    async def _execute(self, job, candidate):
+        runtime = self.runtime
+        sink = MemorySink(self, job)
+        runtime.event_sink = sink
+
+        async def unavailable(deps, approval, action):
+            raise SecurityError("approval_unavailable")
+
+        runtime.approval_backend = self.backend or (
+            VerifyApprovalBackend(runtime.settings)
+            if runtime.settings.verify_push_enabled
+            else unavailable
+        )
+        job.view.started_at = now()
+        job.view.state = "running"
+        try:
+            if candidate:
+                result = await runtime.run_action(
+                    job.request,
+                    job.snapshot.principal,
+                    Action.model_validate_json(candidate.action),
+                    run_context=job.context,
+                )
+            else:
+                reader = (
+                    self.database_reader_factory(job.snapshot, sink)
+                    if self.database_reader_factory
+                    else DatabaseBroker(
+                        runtime.settings,
+                        job.snapshot.access_token,
+                        job.snapshot.principal.subject,
+                        observer=lambda stage: self._stage(job, stage),
+                    )
+                )
+                result = await runtime.run(
+                    job.request,
+                    job.snapshot.principal,
+                    database_reader=reader,
+                    run_context=job.context,
+                )
+            code = result.error_code
+            if code == "storage_error":
+                job.uncertain = True
+                job.view.cleanup_status = "unknown"
+                self.quarantined = True
+            if job.stopped or code == "contained":
+                job.view.state = "interrupted"
+                code = "interrupted"
+            elif (
+                job.view.cleanup_status in {"unknown", "failed", "pending"}
+                or job.acquired != job.revoked
+            ):
+                job.view.state = "failed"
+                code = "cleanup_failed"
+                if job.view.cleanup_status == "pending":
+                    job.view.cleanup_status = "failed"
+            elif job.view.approval_status == "unconfirmed":
+                job.view.state = "failed"
+                code = "approval_unconfirmed"
+            elif job.view.approval_status == "denied":
+                job.view.state = "denied"
+                code = "approval_denied"
+            elif (
+                result.status == "completed"
+                and "database-read" in runtime.definitions[job.request.profile].capabilities
+                and not job.reads
+            ):
+                job.view.state = "failed"
+                code = "task_failed"
+            elif result.status == "completed":
+                job.view.state = "completed"
+                if job.view.approval_status == "pending":
+                    job.view.state = "failed"
+                    code = "approval_unconfirmed"
+            else:
+                job.view.state = "denied" if code == "policy_denied" else "failed"
+            if result.output:
+                summary = result.output.summary
+                job.view.result = summary[:32000]
+                job.view.truncated = len(summary) > 32000
+            if code:
+                job.view.error = WorkflowError.of(self._safe(code))
+        except asyncio.CancelledError:
+            job.view.state = "interrupted"
+            job.view.error = WorkflowError.of("interrupted")
+        except Exception:
+            job.view.state = "failed"
+            job.view.error = WorkflowError.of("task_failed")
+        finally:
+            runtime.approvals.invalidate_run(job.context.run_id)
+            if job.view.approval_status == "pending":
+                job.view.approval_status = "unconfirmed"
+                if not job.stopped and job.view.error and job.view.error.code == "task_failed":
+                    job.view.error = WorkflowError.of("approval_unconfirmed")
+            job.view.finished_at = now()
+            job.view.retry_available = (
+                job.view.state == "failed"
+                and job.view.error is not None
+                and job.view.error.code == "approval_unconfirmed"
+                and job.view.approval_status == "unconfirmed"
+                and len(job.candidates) == 1
+                and not job.writes
+                and not job.uncertain
+                and not job.stopped
+                and job.view.cleanup_status in {"not_acquired", "revoked"}
+                and job.acquired == job.revoked
+            )
+            job.snapshot = None
+            runtime.event_sink = NullSink()
+            runtime.approval_backend = None
+            self.owner = None
+
+    def _stage(self, job, stage):
+        if stage == "lease_acquired":
+            # Runtime observer records acquisition; this callback handles only errors.
+            return
+        if stage.startswith("denied:"):
+            code = stage.partition(":")[2]
+            job.view.error = WorkflowError.of(self._safe(code))
+            if code == "cleanup_failed":
+                job.view.cleanup_status = "failed"
+                job.uncertain = True
+
+    @staticmethod
+    def _safe(code):
+        from agent.workspace.models import ERRORS
+
+        if code in ERRORS:
+            return code
+        if code.startswith("verify_"):
+            return "approval_invalid"
+        if code.startswith(("database_", "vault_", "delegation_", "oauth_")):
+            return "database_unavailable"
+        if code == "approval_denied_or_expired":
+            return "approval_unconfirmed"
+        return "task_failed"
+
+    def close_session(self, session):
+        for job in session.jobs.values():
+            job.view.retry_available = False
+            if job.view.state not in {"completed", "denied", "failed", "interrupted"}:
+                job.stopped = True
+                self.runtime.approvals.invalidate_run(job.context.run_id)
+                self.runtime.contain_run(job.context.run_id)
+
+        async def drain():
+            owned = [j.worker for j in session.jobs.values() if j.worker and not j.worker.done()]
+            if owned:
+                await asyncio.gather(*owned, return_exceptions=True)
+            # Admission has no effects; it checks closing state after renewal.
+            while self.owner and self.owner.session is session:
+                await asyncio.sleep(0.01)
+            for job in list(session.jobs.values()):
+                self.runtime.forget(job.context.run_id)
+
+        return drain()

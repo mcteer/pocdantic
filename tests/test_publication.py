@@ -93,3 +93,17 @@ def test_chat_frontend_is_forbidden_in_distribution_paths():
         assert guard.forbidden("agent/validation/review-00000000-0000-4000-8000-000000000002.json")
     finally:
         sys.path.pop(0)
+
+
+@pytest.mark.parametrize("name", ["index.html", "app.js", "style.css"])
+def test_workspace_assets_have_exact_publication_allowlist(name):
+    sys.path.insert(0, str(SCRIPT.parent))
+    try:
+        from publish_policy import publishable
+
+        assert publishable("src/agent/workspace/static/" + name)
+        assert not publishable("src/agent/workspace/static/storage.json")
+        assert not publishable("src/agent/workspace/static/extra.html")
+        assert not publishable("src/agent/workspace/static/trace.zip")
+    finally:
+        sys.path.pop(0)

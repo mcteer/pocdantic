@@ -82,7 +82,7 @@ async def test_cleanup_failure_prevents_false_success():
         return httpx.Response(403, text="private-password")
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        with pytest.raises(SecurityError, match="vault_http_403"):
+        with pytest.raises(SecurityError, match="cleanup_failed"):
             async with VaultClient("https://vault.example", "", http).credentials(
                 SecretStr("private-token"), "database/creds/read"
             ):
@@ -157,3 +157,167 @@ async def test_database_connection_uses_leased_identity_and_verified_tls(monkeyp
     assert kwargs["password"] == "leased_password"
     assert kwargs["sslmode"] == "verify-full"
     assert kwargs["sslrootcert"] == "/trusted/ca.pem"
+
+
+async def test_cleanup_child_is_drained_and_failure_is_normalized():
+    import asyncio
+
+    import httpx
+    from pydantic import SecretStr
+
+    from agent.security import SecurityError
+    from agent.vault import VaultClient
+
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda r: httpx.Response(
+                200,
+                json={
+                    "lease_id": "database/creds/read/lease",
+                    "lease_duration": 30,
+                    "data": {"username": "secret-user", "password": "secret-password"},
+                },
+            )
+        )
+    )
+    completed = asyncio.Event()
+
+    async def revoke(lease):
+        try:
+            await asyncio.sleep(10)
+        finally:
+            completed.set()
+
+    async with http:
+        vault = VaultClient("https://vault.example", "", http)
+        with pytest.raises(SecurityError, match="cleanup_failed"):
+            async with vault.credentials(
+                SecretStr("token"), "database/creds/read", revoke=revoke, cleanup_timeout=0.001
+            ):
+                pass
+        assert completed.is_set()
+
+
+async def test_cleanup_upstream_exception_is_safe():
+    import httpx
+    from pydantic import SecretStr
+
+    from agent.security import SecurityError
+    from agent.vault import VaultClient
+
+    async def revoke(lease):
+        raise RuntimeError("PRIVATE CLEANUP SENTINEL")
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda r: httpx.Response(
+                200,
+                json={
+                    "lease_id": "database/creds/read/lease",
+                    "lease_duration": 30,
+                    "data": {"username": "user", "password": "password"},
+                },
+            )
+        )
+    ) as http:
+        with pytest.raises(SecurityError, match="^cleanup_failed$"):
+            async with VaultClient("https://vault.example", "", http).credentials(
+                SecretStr("token"), "database/creds/read", revoke=revoke
+            ):
+                pass
+
+
+async def test_stubborn_cleanup_keeps_context_until_terminal():
+    import asyncio
+
+    from pydantic import SecretStr
+
+    from agent.vault import VaultClient
+
+    release = asyncio.Event()
+    unknown = asyncio.Event()
+    facts = []
+
+    class Observer:
+        def fact(self, name, **private):
+            facts.append(name)
+            if name == "cleanup_unknown":
+                unknown.set()
+
+    async def revoke(lease):
+        while not release.is_set():
+            try:
+                await release.wait()
+            except asyncio.CancelledError:
+                pass
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda r: httpx.Response(
+                200,
+                json={
+                    "lease_id": "database/creds/read/lease",
+                    "lease_duration": 30,
+                    "data": {"username": "user", "password": "password"},
+                },
+            )
+        )
+    ) as http:
+        vault = VaultClient("https://vault.example", "", http)
+
+        async def operation():
+            async with vault.credentials(
+                SecretStr("token"),
+                "database/creds/read",
+                revoke=revoke,
+                cleanup_timeout=0.001,
+                cleanup_drain_timeout=0.001,
+            ):
+                vault.operation_observer = Observer()
+
+        running = asyncio.create_task(operation())
+        await asyncio.wait_for(unknown.wait(), 1)
+        assert not running.done() and not http.is_closed
+        release.set()
+        with pytest.raises(SecurityError, match="cleanup_failed"):
+            await running
+        assert "cleanup_unknown" in facts
+
+
+async def test_failed_fact_sink_cannot_skip_cleanup():
+    from uuid import uuid4
+
+    from pydantic import SecretStr
+
+    from agent.observability import BoundObserver
+    from agent.vault import VaultClient
+
+    calls = []
+
+    class Sink:
+        def emit(self, event):
+            raise RuntimeError("private observer")
+
+        def fact(self, name, **private):
+            raise RuntimeError("private observer")
+
+    observer = BoundObserver(Sink(), uuid4(), uuid4(), uuid4(), uuid4())
+
+    def handler(request):
+        calls.append(request.method)
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                json={
+                    "lease_id": "database/creds/read/exact",
+                    "lease_duration": 30,
+                    "data": {"username": "user", "password": "password"},
+                },
+            )
+        return httpx.Response(204)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        vault = VaultClient("https://vault.example", "", http, operation_observer=observer)
+        async with vault.credentials(SecretStr("token"), "database/creds/read"):
+            pass
+    assert calls == ["GET", "PUT"] and observer.failed

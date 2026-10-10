@@ -20,6 +20,9 @@ for artifact in artifacts:
                 for item in archive.getmembers()
                 if item.isfile()
             ]
+    asset_names = {Path(name).name for name, _ in entries if "/workspace/static/" in name}
+    if asset_names != {"index.html", "app.js", "style.css"}:
+        raise SystemExit("Workspace assets missing or unexpected in distribution")
     for name, data in entries:
         if forbidden(name) or any(secret in data for secret in secrets):
             raise SystemExit("Private data in distribution: " + name)

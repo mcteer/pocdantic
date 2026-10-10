@@ -40,6 +40,13 @@ and `DATABASE_HOST`. Existing `POCDANTIC_*` names and the `pocdantic` command
 remain supported; short variable names take precedence within the same source.
 Environment variables override `.env.local`.
 
+## Browser workspace
+
+Install the server and model/database extras, configure the three LOGIN_* settings,
+and run **uv run agent workspace**. Register the exact callback printed by the command,
+then open its local URL to sign in, submit tasks and view results.
+See [browser setup](docs/usage.md#browser-workspace) for instructions.
+
 ## Development and evidence
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for tests and review requirements, and

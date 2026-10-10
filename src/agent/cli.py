@@ -118,6 +118,8 @@ def main() -> None:
     sub.add_parser("probe", help="Read-only configuration/connectivity summary")
     sub.add_parser("push-demo", help="Verify phone approval for a simulated restart")
     sub.add_parser("serve", help="Run optional authenticated HTTP service")
+    workspace = sub.add_parser("workspace", help="Open a signed-in local browser workspace")
+    workspace.add_argument("--port", type=int, default=8000)
     run = sub.add_parser("run")
     run.add_argument("--task", required=True)
     run.add_argument("--profile", default="parent")
@@ -128,6 +130,54 @@ def main() -> None:
     add_validation_parser(sub)
     args = parser.parse_args()
     try:
+        if args.command == "workspace":
+            import socket
+
+            try:
+                import uvicorn
+
+                from .workspace.app import create_workspace_app, prerequisites
+            except ImportError:
+                print("Install the server extra: uv sync --extra server", file=sys.stderr)
+                sys.exit(1)
+            if not 1024 <= args.port <= 65535:
+                print("--port must be between 1024 and 65535.", file=sys.stderr)
+                sys.exit(1)
+            settings = Settings()
+            missing = prerequisites(settings)
+            if missing:
+                print("Set these workspace settings: " + ", ".join(missing), file=sys.stderr)
+                sys.exit(1)
+            with socket.socket() as listener:
+                try:
+                    listener.bind(("127.0.0.1", args.port))
+                except OSError:
+                    print(
+                        "Port unavailable; choose another --port and register its callback.",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+                try:
+                    app = create_workspace_app(settings, port=args.port)
+                except ImportError:
+                    extra = (
+                        "google"
+                        if settings.model.startswith("google")
+                        else settings.model.split(":", 1)[0]
+                    )
+                    print(
+                        "Install the selected model extra: uv sync --extra server --extra " + extra,
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+                print(f"Workspace: http://127.0.0.1:{args.port}", flush=True)
+                print(f"Register callback: http://127.0.0.1:{args.port}/auth/callback", flush=True)
+                listener.listen(128)
+                server = uvicorn.Server(
+                    uvicorn.Config(app, access_log=False, proxy_headers=False, log_level="warning")
+                )
+                server.run(sockets=[listener])
+            return
         if args.command == "serve":
             import uvicorn
 

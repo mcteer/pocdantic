@@ -26,7 +26,8 @@ Use Python 3.12+ and uv. Fork the repository, clone your fork and create a focus
 from the default branch. Use your normal Git identity.
 
 ~~~sh
-uv sync --locked --extra server --extra logfire --extra postgres --group dev
+uv sync --locked --extra server --extra logfire --extra postgres --group dev --group browser
+uv run --group browser playwright install webkit
 scripts/install-hooks.sh
 uv run agent demo
 ~~~
@@ -103,7 +104,7 @@ uv run python scripts/check_gates.py --all-features
 uv run python scripts/check_gates.py --runtime-only
 uv run ruff check .
 uv run ruff format --check .
-uv run pytest -q
+uv run --group browser pytest -q
 uv run agent demo
 uv build
 uv run python scripts/check_distribution.py

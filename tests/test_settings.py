@@ -33,3 +33,16 @@ def test_environment_overrides_file_across_aliases(tmp_path, monkeypatch):
     settings = Settings(_env_file=env_file)
     assert settings.model == "environment-model"
     assert settings.oauth_client_id == "environment-client"
+
+
+def test_login_client_is_separate_and_scopes_are_bounded(monkeypatch):
+    import pytest
+    from pydantic import ValidationError
+
+    monkeypatch.setenv("LOGIN_CLIENT_ID", "short-login")
+    monkeypatch.setenv("POCDANTIC_LOGIN_CLIENT_ID", "legacy-login")
+    s = Settings(_env_file=None, oauth_client_id="actor")
+    assert s.login_client_id == "short-login" and s.oauth_client_id == "actor"
+    for scopes in ("database:read", "openid openid", "openid\x00", "openid " + "x" * 129):
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None, login_scopes=scopes)
