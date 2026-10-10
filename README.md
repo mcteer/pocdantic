@@ -1,4 +1,4 @@
-# Pocdantic
+# PoCdantic
 
 A reusable, identity-aware Pydantic AI agent harness by **mcteer**. It starts with
 `pydantic-ai-slim` and adds model providers, Logfire, HTTP serving, and PostgreSQL
@@ -269,3 +269,14 @@ Host applications can pass a private `message_history` list to `Runtime.run` for
 conversation context. Isolate this list by verified user and agent profile; it is
 updated only after a successful run. Identity, policy and containment are checked
 on every invocation. Frontend files remain outside the published harness paths.
+
+
+For IBM Verify delegated exchange, configure agent and human applications with the newer
+OIDC provider and supply its discovery URL (`https://<tenant>/oauth2/.well-known/openid-configuration`).
+The administrative API client uses Verify's independent administrative provider, so changing
+the agent issuer does not redirect privileged API authentication. Enable token exchange,
+require the actor token, bind the human token's `may_act` to that actor, and allow the
+`vault:path_access` authorization-detail type. Vault needs a matching issuer profile,
+subject/actor aliases, and an agent registry ceiling for the read and lease-cleanup paths.
+Broker observers receive lifecycle stage names and safe denial codes only; never add
+credentials or raw upstream responses to those events.

@@ -17,10 +17,17 @@ def oauth_config(settings: Settings, *, api: bool = False) -> OAuthConfig:
         discovery = (
             settings.verify_tenant_url + "/v1.0/endpoint/default/.well-known/openid-configuration"
         )
+    token_endpoint, issuer = settings.oauth_token_endpoint, settings.oauth_issuer
+    if api and settings.oauth_provider == "verify" and settings.verify_tenant_url:
+        # Privileged Verify API clients use the administrative provider independently.
+        discovery = (
+            settings.verify_tenant_url + "/v1.0/endpoint/default/.well-known/openid-configuration"
+        )
+        token_endpoint, issuer = None, None
     return OAuthConfig(
         discovery_url=discovery,
-        token_endpoint=settings.oauth_token_endpoint,
-        issuer=settings.oauth_issuer,
+        token_endpoint=token_endpoint,
+        issuer=issuer,
         client_id=client_id,
         client_secret=secret,
         auth_method=settings.oauth_auth_method,

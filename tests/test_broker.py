@@ -195,3 +195,21 @@ async def test_cleanup_authorization_failure_cannot_report_success(chain, failur
     with pytest.raises(SecurityError):
         await broker()(1)
     assert len(state["exchanges"]) == 2
+
+
+async def test_observer_reports_only_verified_lifecycle_stages(chain):
+    state, factory = chain
+    broker = factory()
+    stages = []
+    from dataclasses import replace
+
+    await replace(broker, observer=stages.append)(1)
+    assert stages == [
+        "subject_verified",
+        "actor_verified",
+        "read_delegation_verified",
+        "lease_acquired",
+        "database_read_completed",
+        "cleanup_delegation_verified",
+        "lease_revoked",
+    ]

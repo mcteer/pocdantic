@@ -1,6 +1,6 @@
-# Contributing to Pocdantic
+# Contributing to PoCdantic
 
-Pocdantic is maintained by **mcteer**. Contributions should preserve its reusable,
+PoCdantic is maintained by **mcteer**. Contributions should preserve its reusable,
 identity-aware agent harness and keep customer configuration outside the code.
 
 ## Before starting

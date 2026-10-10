@@ -9,7 +9,14 @@ SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "check_privacy.py"
 
 @pytest.mark.parametrize(
     "name",
-    ["design/private.txt", ".env.local", "specs/001-feature/evidence/private.json", "notes.md"],
+    [
+        "design/private.txt",
+        ".env.local",
+        "specs/001-feature/evidence/private.json",
+        "notes.md",
+        "chat/app.py",
+        "chat/static/index.html",
+    ],
 )
 def test_private_or_non_harness_files_rejected_even_when_force_added(tmp_path, name):
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
@@ -62,3 +69,17 @@ def test_database_uri_and_decoded_components_rejected(tmp_path, copied):
     result = subprocess.run([sys.executable, str(SCRIPT)], cwd=tmp_path, capture_output=True)
     assert result.returncode != 0
     assert copied.encode() not in result.stderr
+
+
+def test_chat_frontend_is_forbidden_in_distribution_paths():
+    import importlib.util
+
+    sys.path.insert(0, str(SCRIPT.parent))
+    try:
+        spec = importlib.util.spec_from_file_location("privacy_guard", SCRIPT)
+        guard = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(guard)
+        assert guard.forbidden("PoCdantic-0.1.0/chat/app.py")
+        assert guard.forbidden("chat/static/index.html")
+    finally:
+        sys.path.pop(0)

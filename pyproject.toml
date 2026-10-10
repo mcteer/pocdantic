@@ -3,7 +3,7 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "pocdantic"
+name = "PoCdantic"
 version = "0.1.0"
 description = "Reusable identity-aware Pydantic AI PoC runtime"
 readme = "README.md"

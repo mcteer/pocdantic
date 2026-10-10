@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import httpx
@@ -28,8 +29,20 @@ class DatabaseBroker:
     settings: Settings = field(repr=False)
     subject_token: SecretStr = field(repr=False)
     subject: str = field(repr=False)
+    observer: Callable[[str], None] | None = field(default=None, repr=False)
+
+    def observe(self, stage: str) -> None:
+        if self.observer:
+            self.observer(stage)
 
     async def __call__(self, record_id: int) -> list[dict]:
+        try:
+            return await self._read(record_id)
+        except SecurityError as error:
+            self.observe("denied:" + str(error))
+            raise
+
+    async def _read(self, record_id: int) -> list[dict]:
         s = self.settings
         if not all(
             (s.vault_addr, s.vault_audience, s.oauth_audience, s.database_host, s.database_name)
@@ -41,6 +54,7 @@ class DatabaseBroker:
             principal = await user_verifier.verify(self.subject_token)
             if principal.subject != self.subject or "database:read" not in principal.scopes:
                 raise SecurityError("database_subject_invalid")
+            self.observe("subject_verified")
             actor = await oauth.client_credentials()
             actor_claims = await JWTVerifier(
                 oauth, s.actor_audience or s.oauth_client_id, token_typ=s.oauth_access_token_typ
@@ -49,6 +63,7 @@ class DatabaseBroker:
                 "client_id" in actor_claims and actor_claims["client_id"] != s.oauth_client_id
             ):
                 raise SecurityError("database_actor_invalid")
+            self.observe("actor_verified")
             verifier = JWTVerifier(oauth, s.vault_audience, token_typ=s.oauth_access_token_typ)
 
             async def delegated(details):
@@ -67,6 +82,7 @@ class DatabaseBroker:
                 }
             ]
             read_token = await delegated(read_details)
+            self.observe("read_delegation_verified")
             vault = VaultClient(s.vault_addr, s.vault_namespace, http)
 
             async def revoke(lease_id):
@@ -83,10 +99,13 @@ class DatabaseBroker:
                     }
                 ]
                 cleanup_token = await delegated(cleanup_details)
+                self.observe("cleanup_delegation_verified")
                 await vault.revoke(cleanup_token, lease_id)
+                self.observe("lease_revoked")
 
             async with vault.credentials(read_token, s.vault_read_path, revoke=revoke) as lease:
-                return await read_postgres(
+                self.observe("lease_acquired")
+                rows = await read_postgres(
                     lease,
                     host=s.database_host,
                     port=s.database_port,
@@ -95,3 +114,5 @@ class DatabaseBroker:
                     sslrootcert=s.database_sslrootcert,
                     username_suffix=s.database_username_suffix,
                 )
+                self.observe("database_read_completed")
+                return rows

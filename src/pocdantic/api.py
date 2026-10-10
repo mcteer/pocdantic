@@ -41,7 +41,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
             yield
 
-    app = FastAPI(title="Pocdantic", lifespan=lifespan)
+    app = FastAPI(title="PoCdantic", lifespan=lifespan)
 
     @app.get("/health")
     async def health():

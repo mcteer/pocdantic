@@ -139,3 +139,28 @@ async def test_discovery_cannot_redirect_credentials_to_other_host():
     ) as http:
         with pytest.raises(SecurityError, match="untrusted_endpoint"):
             await OAuthClient(cfg, http).client_credentials()
+
+
+def test_verify_administrative_provider_is_independent_of_agent_provider():
+    from pocdantic.probe import oauth_config
+    from pocdantic.settings import Settings
+
+    settings = Settings(
+        _env_file=None,
+        verify_tenant_url="https://issuer.example",
+        oauth_discovery_url="https://issuer.example/oauth2/discovery",
+        oauth_issuer="https://issuer.example/oauth2",
+        oauth_token_endpoint="https://issuer.example/oauth2/token",
+        oauth_client_id="agent",
+        oauth_client_secret=SecretStr("agent-private"),
+        verify_api_client_id="admin",
+        verify_api_client_secret=SecretStr("admin-private"),
+    )
+    config = oauth_config(settings, api=True)
+    assert config.client_id == "admin"
+    assert (
+        config.discovery_url
+        == "https://issuer.example/v1.0/endpoint/default/.well-known/openid-configuration"
+    )
+    assert config.token_endpoint is None and config.issuer is None
+    assert oauth_config(settings).token_endpoint == "https://issuer.example/oauth2/token"

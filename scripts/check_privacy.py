@@ -18,6 +18,7 @@ def forbidden(name):
     p = PurePosixPath(name)
     return (
         "design" in p.parts
+        or "chat" in p.parts
         or ("specs" in p.parts and bool({"private", "evidence"} & set(p.parts)))
         or ".local" in p.parts
         or ".agents" in p.parts
