@@ -244,3 +244,24 @@ def test_response_action_labels_cannot_carry_private_identifiers():
         }
     ) == {"response_action": "revoke_exact", "response_status": "uncertain"}
     assert safe_attributes({"response_action": "secret-canary"}) == {}
+
+
+def test_provider_telemetry_has_only_closed_codes():
+    """Provider native identities, messages and destination canaries cannot enter exported spans."""
+    from types import SimpleNamespace
+
+    from agent.observability import provider_action
+    from agent.telemetry import AllowlistProvider
+
+    exporter = InMemorySpanExporter()
+    sdk = TracerProvider()
+    sdk.add_span_processor(SimpleSpanProcessor(exporter))
+    telemetry = SimpleNamespace(provider=AllowlistProvider(sdk))
+    provider_action(telemetry, "block_registration", "acknowledged", "not_run")
+    provider_action(
+        telemetry, "PRIVATE_NATIVE_CANARY", "PRIVATE_DESTINATION_CANARY", "PRIVATE_RESPONSE_CANARY"
+    )
+    spans = exporter.get_finished_spans()
+    assert spans[0].attributes["provider_action"] == "block_registration"
+    assert "PRIVATE" not in "\n".join(span.to_json() for span in spans)
+    sdk.shutdown()

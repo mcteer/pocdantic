@@ -107,6 +107,27 @@ def workspace_browser(workspace_settings, identity_provider, request, monkeypatc
     from response_support import enrolled
 
     response = enrolled(config, tmp_path, recovery=recovery)
+    if options.get("provider_response"):
+        from provider_support import activate, enrollment, resource
+
+        from agent.response.providers.models import Rule
+
+        subject_control = options["provider_response"] == "user"
+        binding = resource(
+            config,
+            "user" if subject_control else "teams",
+            user_subject="user",
+            user_issuer=config.oauth_issuer,
+        )
+        kind = "suspend_user" if subject_control else "notify_teams"
+        rule = Rule(
+            alias="browser-response",
+            scope="definition" if subject_control else "root_run",
+            actions=(kind,),
+            bindings=(binding.binding_id,),
+            required=frozenset({kind}) if subject_control else frozenset(),
+        )
+        activate(response, enrollment(response, bindings=(binding,), rules=(rule,)))
     app = create_workspace_app(
         config,
         port=port,

@@ -460,3 +460,247 @@ def inspect_closeout(store, snapshot_id):
             )
         raise
     return CloseoutResult(snapshot=snapshot)
+
+
+def provider_closeout(state, incident_id):
+    """Assess all nine Function 10 paths independently without editing acceptance files.
+
+    Disk-only evidence must bind the current installation, enrollment, implementation,
+    incident and resource generation. Synthetic execution and HTTP acknowledgment cannot
+    certify native enforcement. Missing source review, inventory or clock bounds remains
+    blocked; a recent contradictory result remains a failure rather than disappearing
+    behind an older successful observation.
+    """
+    from datetime import timedelta
+
+    from agent.recovery.models import now
+    from agent.response.providers.enrollment import digest as provider_digest
+    from agent.response.providers.models import require
+    from agent.response.providers.proof import PATHS
+    from agent.response.providers.report import interval, loss_interval
+
+    incident = next((i for i in state.incidents if i.incident_id == incident_id), None)
+    require(incident is not None, "target_unknown")
+    plan = next(
+        (p for p in getattr(state, "provider_plans", ()) if p.incident_id == incident_id), None
+    )
+    policy = getattr(state, "enrollment", None)
+    actions = [
+        a for a in getattr(state, "provider_actions", ()) if plan and a.action_id in plan.action_ids
+    ]
+    probes = [
+        p
+        for p in getattr(state, "probe_acquisitions", ())
+        if any(o.incident_id == incident_id for o in p.observations)
+    ]
+    observations = [
+        o for a in (*actions, *probes) for o in a.observations if o.incident_id == incident_id
+    ]
+    current_digest = implementation_revision()
+
+    def reviewed(observation):
+        """Require fresh native review and all authority/revision correlations."""
+        return bool(
+            policy
+            and observation.source == "native_evidence"
+            and observation.reviewer
+            and observation.reviewed_at
+            and observation.reviewed_at <= now()
+            and now() - timedelta(seconds=300) <= observation.observed_at <= now()
+            and observation.implementation_digest == current_digest
+            and observation.enrollment_digest == provider_digest(policy)
+            and observation.installation_id == state.installation_id
+            and observation.environment_digest == state.environment_digest
+        )
+
+    def latest(path, records=observations):
+        """Preserve the latest contradiction regardless of which source reported it."""
+        values = [o for o in records if o.path == path]
+        return max(values, key=lambda o: o.observed_at) if values else None
+
+    def proven(path, records=observations):
+        """A path passes only with its latest independently proven native reviewed result."""
+        value = latest(path, records)
+        return bool(value and reviewed(value) and value.result == "proven")
+
+    intake = latest("native_intake")
+    native = bool(
+        plan
+        and plan.mode == "native"
+        and policy
+        and intake
+        and proven("native_intake")
+        and intake.event_digest == incident.payload_digest
+        and intake.observed_at == incident.received_at
+        and any(
+            s.alias == incident.source
+            and s.provenance == "native"
+            and s.collector_digest
+            and s.reviewed_by
+            for s in policy.sources
+        )
+    )
+    dynamic = all(proven(path) for path in ("dynamic_fresh", "dynamic_session")) and bool(probes)
+    dynamic = dynamic and all(
+        any(
+            a.kind == "revoke_exact"
+            and a.target_id == p.recovery_incident_id
+            and a.status == "confirmed"
+            for a in incident.actions
+        )
+        for p in probes
+    )
+    same = proven("same_jwt")
+    user = all(proven(path) for path in ("tenant_user", "tenant_sessions", "notification"))
+    static = all(proven(path) for path in ("static_old", "static_new"))
+    security = [a for a in actions if a.kind != "notify_teams"]
+    required_complete = bool(security) and all(
+        a.state in {"acknowledged", "reconciled"}
+        and all(proven(path, a.observations) for path in PATHS[a.kind])
+        for a in security
+    )
+    timings = [loss_interval(state, plan, a) for a in security] if plan else []
+    bounded = bool(timings) and all(t and t["upper_ms"] < 1800000 for t in timings)
+    native_token = proven("native_token")
+    root_peer = (
+        incident.target.kind == "root_run"
+        and native_token
+        and all(
+            a.binding.exclusive_tree and a.binding.root_run_id == incident.target.root_run_id
+            for a in security
+            if a.kind == "revoke_native_token"
+        )
+    )
+    inventory_complete = bool(policy) and not any(
+        a.state in {"intent", "submitted", "uncertain"}
+        for a in getattr(state, "native_acquisitions", ())
+    )
+    inventory_complete = inventory_complete and not any(
+        p.state not in {"cleaned", "denied_no_issuance"}
+        and not (
+            p.credential_class == "oauth_jwt"
+            and p.state == "issued"
+            and p.credential_digest
+            and p.credential_expires_at
+            and proven("fresh_issuance")
+        )
+        for p in getattr(state, "probe_acquisitions", ())
+    )
+    for acquisition in getattr(state, "native_acquisitions", ()):
+        if acquisition.state == "bound":
+            matches = [
+                a
+                for a in security
+                if a.kind == "revoke_native_token"
+                and a.binding.key() == acquisition.binding.key()
+                and a.binding.generation == acquisition.binding.generation
+            ]
+            inventory_complete = (
+                inventory_complete
+                and bool(matches)
+                and all(proven("native_token", a.observations) for a in matches)
+            )
+    needed = {
+        "registration": {"block_registration"},
+        "user": {"suspend_user", "revoke_user_sessions"},
+        "static_role": {"rotate_static", "terminate_static_sessions"},
+        "native_token": {"revoke_native_token"},
+    }
+    if policy:
+        for binding in policy.bindings:
+            if binding.enabled and binding.kind in needed:
+                kinds = {
+                    a.kind
+                    for a in security
+                    if a.binding.key() == binding.key()
+                    and a.binding.generation == binding.generation
+                }
+                inventory_complete = inventory_complete and needed[binding.kind] <= kinds
+    native_fresh_unverified = bool(policy and policy.native_login_mount)
+    # OAuth exchange denial does not certify the separately configured native JWT
+    # login role. Existing accessor proof alone cannot close that fresh path.
+    definition = (
+        not native_fresh_unverified
+        and incident.target.kind == "definition"
+        and required_complete
+        and inventory_complete
+        and plan is not None
+        and not plan.missing_controls
+    )
+    old = latest("same_jwt")
+    immediate_interval = (
+        interval(
+            incident.contained_at,
+            old.observed_at,
+            intake.clock_bound_seconds,
+            old.clock_bound_seconds,
+        )
+        if old and intake
+        else None
+    )
+    immediate = bool(
+        same
+        and old.credential_expires_at
+        and old.observed_at < old.credential_expires_at
+        and immediate_interval
+        and immediate_interval["upper_ms"] <= 120000
+    )
+    predicates = (
+        bool(actions) and any(a.state in {"acknowledged", "reconciled"} for a in actions),
+        dynamic,
+        same,
+        user,
+        static,
+        bounded,
+        root_peer,
+        definition,
+        immediate,
+    )
+    required_paths = (
+        ("native_intake",),
+        ("dynamic_fresh", "dynamic_session"),
+        ("same_jwt",),
+        ("tenant_user", "tenant_sessions", "notification"),
+        ("static_old", "static_new"),
+        (),
+        ("native_token",),
+        tuple(sorted({p for a in security for p in PATHS[a.kind]})),
+        ("same_jwt",),
+    )
+    cases = []
+    for index, predicate in enumerate(predicates, 1):
+        paths = required_paths[index - 1]
+        contradiction = native and any(
+            latest(path) is not None and latest(path).result == "disproven" for path in paths
+        )
+        cases.append(
+            {
+                "case": f"F10-T{index}",
+                "outcome": "fail"
+                if contradiction
+                else "pass"
+                if native and predicate
+                else "blocked",
+                "reason_code": "provider_state_observed"
+                if native and predicate
+                else "source_evidence_missing"
+                if not native
+                else "proof_required",
+                "paths": {
+                    path: latest(path).result if latest(path) else "not_run" for path in paths
+                },
+                "limitations": (["upstream_sessions_unsupported"] if index == 4 else [])
+                + (
+                    ["native_login_fresh_issuance_unverified"]
+                    if index == 8 and native_fresh_unverified
+                    else []
+                ),
+            }
+        )
+    return {
+        "schema_version": 1,
+        "incident_id": str(incident_id),
+        "cases": cases,
+        "source_to_loss": timings,
+        "acceptance_updated": False,
+    }

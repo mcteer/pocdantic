@@ -431,6 +431,71 @@ class RecoveryStore:
             self.failed = True
             raise RecoveryError() from None
 
+    def adopt_probe(self, owner, response_store, acquisition_id):
+        """Idempotently retain an already-issued trusted probe lease before response linkage.
+
+        Read the original local probe ourselves, preserving operation ID, ownership and
+        intent/dispatch times. A crash after this write leaves a rediscoverable recovery
+        operation; arbitrary caller-supplied metadata cannot become cleanup authority.
+        """
+        owner.require(self)
+        if response_store.recovery is not self or response_store.project != self.project:
+            raise RecoveryError("recovery_evidence_invalid")
+        state = response_store.read()
+        probe = next(
+            (p for p in state.probe_acquisitions if p.acquisition_id == acquisition_id), None
+        )
+        if (
+            probe is None
+            or probe.state not in {"issued", "cleanup_pending"}
+            or probe.credential_class != "vault_lease"
+            or not probe.lease_handle
+        ):
+            raise RecoveryError("recovery_evidence_invalid")
+        with self._lock("journal.lock"), self._directory() as directory:
+            journal = self._read(directory)
+            existing = next((a for a in journal.attempts if a.operation_id == acquisition_id), None)
+            if existing:
+                if (
+                    existing.ownership,
+                    existing.credential_path,
+                    existing.lease_handle,
+                    existing.created_at,
+                    existing.acquisition_submitted_at,
+                ) != (
+                    probe.ownership,
+                    probe.credential_path,
+                    probe.lease_handle,
+                    probe.created_at,
+                    probe.submitted_at,
+                ):
+                    raise RecoveryError("recovery_evidence_invalid")
+                return existing
+            item = AttemptV2(
+                incident_id=uuid4(),
+                operation_id=acquisition_id,
+                environment_digest=journal.environment_digest,
+                ownership=probe.ownership,
+                credential_path=probe.credential_path,
+                lease_handle=probe.lease_handle,
+                created_at=probe.created_at,
+                acquisition_submitted_at=probe.submitted_at,
+                state="acquired",
+                reason_code="cleanup_unconfirmed",
+            )
+            updated = type(journal).model_validate(
+                journal.model_dump()
+                | {
+                    "attempts": (*self._prune(journal, reserve=True), item),
+                    "revision": journal.revision + 1,
+                    "updated_at": now(),
+                }
+            )
+            if len(canonical(updated)) > MAX_BYTES - RECEIPT_RESERVE:
+                raise RecoveryError("recovery_capacity")
+            self._write(directory, updated)
+            return item
+
     def update(self, incident_id, expected_revision, **changes):
         """Compare-and-swap one attempt, checking transitions and preserving native bindings."""
         allowed = {

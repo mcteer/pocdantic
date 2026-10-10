@@ -92,6 +92,8 @@ async function loadSession() {
   $('login').hidden = session.signed_in;
   $('logout').hidden = !session.signed_in;
   $('workspace').hidden = !session.signed_in;
+  // Remove owned provider details when logout, expiry or suspension closes the session.
+  if (!session.signed_in) $('provider-controls').replaceChildren();
   $('profile').replaceChildren(...session.profiles.map(profile => {
     const option = document.createElement('option');
     option.value = profile;
@@ -135,6 +137,29 @@ function render(job) {
     (item.contained ? 'Work stopped' : 'Local hold released') + ' · Credential cleanup ' +
     (item.cleanup === 'confirmed' ? 'confirmed' : item.cleanup === 'not_applicable' ? 'not applicable' : 'pending')
   ).join(' · ') : '';
+  // Outcomes are session-owned closed projections; never render native target metadata.
+  const labelsByControl = {
+    block_registration: 'Workload registration', revoke_native_token: 'Native service token',
+    suspend_user: 'Tenant user suspension', revoke_user_sessions: 'Tenant login sessions',
+    rotate_static: 'Isolated password rotation', terminate_static_sessions: 'Isolated database sessions',
+    notify_teams: 'Teams notice'
+  };
+  $('provider-controls').replaceChildren(...containment.flatMap(item =>
+    [...(item.provider_controls || []).map(control => {
+      const row = document.createElement('li');
+      const paths = Object.entries(control.paths || {}).map(([path, result]) =>
+        path.replaceAll('_', ' ') + ': ' + result.replaceAll('_', ' ')).join('; ');
+      row.textContent = labelsByControl[control.kind] + ' — request ' + control.state +
+        '. Independent checks: ' + paths +
+        (control.provenance === 'synthetic' ? '. Synthetic evidence only.' : '');
+      return row;
+    }), ...Object.entries(item.database_checks || {}).map(([path, result]) => {
+      const row = document.createElement('li');
+      row.textContent = (path === 'dynamic_fresh' ? 'Dynamic database login' : 'Held database session') +
+        ' — independent check: ' + result.replaceAll('_', ' ');
+      return row;
+    })]
+  ));
   $('action').textContent = job.action_summary || '';
   $('result').textContent = (job.result || '') + (job.truncated ? '\n[Result truncated]' : '');
   $('retry').hidden = !job.retry_available;

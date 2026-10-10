@@ -66,7 +66,16 @@ class Coordinator:
         self.work_budget = work_budget
         self.telemetry = telemetry
 
-    def submit(self, signal, source=None):
+    def submit(
+        self,
+        signal,
+        source=None,
+        *,
+        native=None,
+        rule_alias=None,
+        native_digest=None,
+        native_enrollment_digest=None,
+    ):
         """Persist a checked immutable scope and cancellation action before acknowledgment."""
         try:
             signal = RiskSignal.model_validate(signal.model_dump())
@@ -74,7 +83,35 @@ class Coordinator:
             raise ResponseError("signal_invalid") from None
         policy = self.store.policy()
         alias = "local-operator"
-        if source is not None:
+        if native is not None:
+            from .providers.models import SourceProfile
+
+            state = self.store.read()
+            if (
+                not isinstance(native, SourceProfile)
+                or state.schema_version != 2
+                or state.enrollment is None
+                or native not in state.enrollment.sources
+                or signal.target.kind not in native.allowed_scopes
+            ):
+                raise ResponseError("source_invalid")
+            from .providers.enrollment import digest as enrollment_digest
+
+            captured_enrollment = enrollment_digest(state.enrollment)
+            if (
+                native_enrollment_digest is not None
+                and native_enrollment_digest != captured_enrollment
+            ):
+                raise ResponseError("provider_policy_changed")
+            if native_digest is not None:
+                import re
+
+                if not isinstance(native_digest, str) or not re.fullmatch(
+                    r"[a-f0-9]{64}", native_digest
+                ):
+                    raise ResponseError("signal_invalid")
+            alias = native.alias
+        elif source is not None:
             if (
                 not isinstance(source, Source)
                 or source not in policy.sources
@@ -82,8 +119,29 @@ class Coordinator:
             ):
                 raise ResponseError("source_invalid")
             alias = source.alias
-        digest = hashlib.sha256(canonical(signal)).hexdigest()
+        digest = hashlib.sha256(
+            canonical(
+                {
+                    "signal": signal.model_dump(mode="json"),
+                    "profile": native.model_dump(mode="json"),
+                    "rule": rule_alias,
+                    "selected_digest": native_digest,
+                    "enrollment_digest": captured_enrollment,
+                }
+            )
+            if native
+            else canonical(signal)
+        ).hexdigest()
         with self.store.transaction() as (fd, state):
+            if native is not None and (
+                state.enrollment is None
+                or enrollment_digest(state.enrollment) != captured_enrollment
+            ):
+                raise ResponseError("provider_policy_changed")
+            if state.schema_version != 2:
+                raise ResponseError("response_schema_migration_required")
+            if native is not None and native not in state.enrollment.sources:
+                raise ResponseError("provider_policy_changed")
             duplicate = next(
                 (i for i in state.incidents if (i.source, i.event_id) == (alias, signal.event_id)),
                 None,
@@ -135,9 +193,20 @@ class Coordinator:
                         incident_ids=(*old, item.incident_id),
                     ),
                 )
+            from .providers.planner import build
+
+            planned = build(
+                state,
+                item,
+                rule_alias=rule_alias,
+                mode=native.provenance if native else "local_only",
+                reason=signal.reason,
+                source_clock_bound_seconds=native.clock_bound_seconds if native else None,
+            )
             self.store.commit(
                 fd,
                 state,
+                **planned,
                 incidents=(*state.incidents, item),
                 holds=holds,
                 root_holds=roots,
@@ -301,7 +370,7 @@ class Coordinator:
             incident_id, phase="settled" if complete else "partial", reason_code=reason
         )
 
-    def reconcile(self, incident_id):
+    def _reconcile_local(self, incident_id):
         """Explicit no-network reconciliation; configured state must remain available."""
         mode = self.store.anchor().recovery_mode
         try:
@@ -313,7 +382,7 @@ class Coordinator:
                 "response_busy" if str(error) == "recovery_busy" else "response_storage_error"
             ) from None
 
-    async def process(self, incident_id):
+    async def _process_local(self, incident_id):
         """One bounded attempt to drain and complete never-submitted exact cleanup."""
         start = time.monotonic()
         deadline = start + self.work_budget
@@ -407,6 +476,54 @@ class Coordinator:
         finally:
             self.change(incident_id, worker_ms=elapsed_ms(start))
 
+    def reconcile(self, incident_id):
+        """Join local cleanup receipts and independent provider proof without network."""
+        self._reconcile_local(incident_id)
+        self.provider_phase(incident_id)
+        return self.get(incident_id)
+
+    async def process(self, incident_id):
+        """Run local cleanup first, then the native plan within one shared 120s budget."""
+        started = time.monotonic()
+        local = await self._process_local(incident_id)
+        state = self.store.read()
+        if getattr(state, "enrollment", None) and local.actions[0].status == "confirmed":
+            from .providers.worker import Worker
+
+            worker = Worker(
+                self.store,
+                transport=self.transport,
+                budget=max(0, 120 - (time.monotonic() - started)),
+                telemetry=self.telemetry,
+            )
+            await worker.process(incident_id)
+            self.provider_phase(incident_id)
+        return self.get(incident_id)
+
+    def provider_phase(self, incident_id):
+        """Prevent local settlement from concealing required external work or missing proof."""
+        from .providers.worker import plan_actions
+
+        state = self.store.read()
+        if state.schema_version != 2:
+            return
+        actions = plan_actions(state, incident_id)
+        from .providers.proof import complete as proven
+
+        plan = next((p for p in state.provider_plans if p.incident_id == incident_id), None)
+        unknown_native = any(
+            a.state in {"intent", "submitted", "uncertain"}
+            and self.get(incident_id).matches(a.ownership)
+            for a in state.native_acquisitions
+        )
+        complete = (
+            not unknown_native
+            and not (plan and plan.missing_controls)
+            and all(proven(a) for a in actions if a.required)
+        )
+        if not complete:
+            self.change(incident_id, phase="partial", reason_code="proof_required")
+
     def release(self, definition, incident_ids, revision, operator):
         """Atomically release only current local definition holds after proven cleanup/drain."""
         mode = self.store.anchor().recovery_mode
@@ -436,6 +553,13 @@ class Coordinator:
                         and any(a.state != "resolved" for a in recovery.attempts)
                     ):
                         raise ResponseError("release_unsafe")
+                    if state.schema_version == 2 and state.enrollment is not None:
+                        # Until all independent provider proofs are resolved, local release
+                        # must not make new roots eligible after a native response.
+                        from .providers.proof import release_safe
+
+                        if not release_safe(state, set(incident_ids)):
+                            raise ResponseError("release_unsafe")
                     record = ReleaseRecord(
                         workload_definition=definition,
                         incident_ids=tuple(incident_ids),
@@ -447,6 +571,17 @@ class Coordinator:
                         fd,
                         state,
                         holds=(),
+                        **(
+                            {
+                                "subject_holds": tuple(
+                                    h
+                                    for h in state.subject_holds
+                                    if h.incident_id not in incident_ids
+                                )
+                            }
+                            if state.schema_version == 2
+                            else {}
+                        ),
                         generation=state.generation + 1,
                         releases=(*state.releases, record),
                     )

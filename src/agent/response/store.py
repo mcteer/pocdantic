@@ -7,7 +7,7 @@ anchor, state root and control lock. Never await effect ownership under a contro
 import fcntl
 import hashlib
 import os
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from datetime import timedelta
 from uuid import uuid4
 
@@ -23,12 +23,11 @@ from .models import (
     PublicSummary,
     ResponseAnchor,
     ResponseError,
-    ResponseJournal,
     RunBinding,
     SourcePolicy,
 )
 
-MAX_BYTES = 8 * 1024 * 1024
+MAX_BYTES = 16 * 1024 * 1024
 RESERVE = 256 * 1024
 
 
@@ -47,6 +46,9 @@ class ResponseStore(RecoveryStore):
         super()._validate_root()
         for name in ("policy.json", "control.lock", "worker.lock"):
             check_stat((self.root / name).lstat())
+        # Schema-1 installations gain this provider-only lock during explicit prepare.
+        if (self.root / "probe.lock").exists() or (self.root / "probe.lock").is_symlink():
+            check_stat((self.root / "probe.lock").lstat())
 
     @contextmanager
     def transaction(self):
@@ -149,6 +151,7 @@ class ResponseStore(RecoveryStore):
                     "state.json",
                     "control.lock",
                     "worker.lock",
+                    "probe.lock",
                     "journal.lock",
                     "effect.lock",
                     "workspace.lock",
@@ -175,7 +178,9 @@ class ResponseStore(RecoveryStore):
                 recovery_mode="configured" if recovery else "not_configured",
                 recovery_installation_id=recovery.installation_id if recovery else None,
             )
-            journal = ResponseJournal(
+            from .providers.journal import ResponseJournalV2
+
+            journal = ResponseJournalV2(
                 installation_id=install,
                 environment_digest=policy.environment_digest,
                 policy_digest=hashlib.sha256(canonical(policy)).hexdigest(),
@@ -185,6 +190,7 @@ class ResponseStore(RecoveryStore):
                 *values,
                 "control.lock",
                 "worker.lock",
+                "probe.lock",
                 "journal.lock",
                 "effect.lock",
                 "workspace.lock",
@@ -211,7 +217,9 @@ class ResponseStore(RecoveryStore):
     def _read(self, fd):
         """Validate both independent enrollment identities and captured policy bindings."""
         anchor = ResponseAnchor.model_validate(self._read_file(fd, "anchor.json"))
-        journal = ResponseJournal.model_validate(self._read_file(fd, "state.json"))
+        from .providers.journal import parse_journal
+
+        journal = parse_journal(self._read_file(fd, "state.json"))
         policy = self.policy()
         if anchor.installation_id != journal.installation_id:
             raise ResponseError()
@@ -235,6 +243,74 @@ class ResponseStore(RecoveryStore):
             raise ResponseError("response_policy_changed")
         return journal
 
+    def migrate(self):
+        """Atomically upgrade response only, with all workers and root owners quiescent.
+
+        Legacy authority/receipts stay byte-identical. No historical provider plan is
+        inferred; an older process rejects v2 instead of silently ignoring new holds.
+        """
+        from .providers.journal import ResponseJournalV2
+
+        if self.read().schema_version == 2:
+            return False
+        mode = self.anchor().recovery_mode
+        try:
+            with ExitStack() as locks:
+                if mode == "configured":
+                    locks.enter_context(self.recovery.workspace())
+                locks.enter_context(self.workspace())
+                locks.enter_context(self._lock("worker.lock"))
+                locks.enter_context(
+                    self.recovery.effect() if mode == "configured" else self.effect()
+                )
+                with self.transaction() as (fd, journal):
+                    if journal.schema_version == 2:
+                        return False
+                    if any(self.busy(r.root_run_id) for r in journal.runs):
+                        raise ResponseError("response_busy")
+                    value = ResponseJournalV2.model_validate(
+                        journal.model_dump() | {"schema_version": 2}
+                    )
+                    self._write(fd, value)
+                    return True
+        except RecoveryError as error:
+            raise ResponseError(
+                "response_busy" if str(error) == "recovery_busy" else "response_storage_error"
+            ) from None
+
+    def subject_held(self, issuer, subject):
+        """Read whether this verified user has an unreleased local execution hold."""
+        state = self.read()
+        return any(
+            h.issuer == issuer and h.subject == subject for h in getattr(state, "subject_holds", ())
+        )
+
+    def bind_actor(self, binding, issuer, subject):
+        """Capture verified actor attribution prospectively without changing lease ownership."""
+        self.check(binding)
+        with self.transaction() as (fd, state):
+            run = next(r for r in state.runs if r.root_run_id == binding.root_run_id)
+            if run.actor_subject is not None and (run.actor_issuer, run.actor_subject) != (
+                issuer,
+                subject,
+            ):
+                raise ResponseError("mapping_missing")
+            policy = state.enrollment
+            if policy:
+                matches = [b for b in policy.bindings if b.enabled and b.kind == "registration"]
+                if matches and not any(
+                    (b.actor_issuer, b.actor_subject) == (issuer, subject) for b in matches
+                ):
+                    raise ResponseError("mapping_missing")
+            updated = RunBinding.model_validate(
+                run.model_dump() | {"actor_issuer": issuer, "actor_subject": subject}
+            )
+            self.commit(
+                fd,
+                state,
+                runs=tuple(updated if r.root_run_id == run.root_run_id else r for r in state.runs),
+            )
+
     def read(self):
         """Read without normalization or provider calls; status is never an effect trigger."""
         with self.transaction() as (_, journal):
@@ -247,14 +323,22 @@ class ResponseStore(RecoveryStore):
 
     def commit(self, fd, journal, **changes):
         """Atomically advance the journal while retaining space for accepted action results."""
-        updated = ResponseJournal.model_validate(
+        if journal.schema_version != 2:
+            raise ResponseError("response_schema_migration_required")
+        updated = type(journal).model_validate(
             journal.model_dump() | changes | {"revision": journal.revision + 1, "updated_at": now()}
         )
         reserved = sum(
-            max(0, RESERVE - len(canonical(i.actions)))
+            max(
+                0,
+                RESERVE - len(canonical(i.actions)),
+            )
             for i in updated.incidents
             if i.phase != "settled"
         )
+        from .providers.journal import result_reservation
+
+        reserved += result_reservation(updated)
         if len(canonical(updated)) + reserved > MAX_BYTES:
             raise ResponseError("response_capacity")
         self._write(fd, updated)
@@ -275,7 +359,16 @@ class ResponseStore(RecoveryStore):
         if principal.issuer != self.policy().issuer:
             raise ResponseError("source_invalid")
         with self.transaction() as (fd, journal):
-            if journal.holds or root_id in journal.root_holds:
+            if journal.schema_version != 2:
+                raise ResponseError("response_schema_migration_required")
+            if (
+                journal.holds
+                or root_id in journal.root_holds
+                or any(
+                    h.issuer == principal.issuer and h.subject == principal.subject
+                    for h in journal.subject_holds
+                )
+            ):
                 raise ResponseError("contained")
             if any(r.root_run_id == root_id for r in journal.runs):
                 raise ResponseError("contained")
@@ -309,10 +402,15 @@ class ResponseStore(RecoveryStore):
         journal = self.read()
         run = next((r for r in journal.runs if r.root_run_id == binding.root_run_id), None)
         if (
-            run is None
+            journal.schema_version != 2
+            or run is None
             or run.state != "active"
             or run.ownership() != binding.ownership()
             or journal.holds
+            or any(
+                h.issuer == binding.issuer and h.subject == binding.subject
+                for h in getattr(journal, "subject_holds", ())
+            )
             or run.root_run_id in journal.root_holds
             or run.generation != journal.generation
         ):
@@ -340,6 +438,11 @@ class ResponseStore(RecoveryStore):
             for a in i.actions
             if a.kind == "revoke_exact" and a.status != "confirmed"
         }
+        pinned.update(
+            p.recovery_incident_id
+            for p in getattr(state, "probe_acquisitions", ())
+            if p.recovery_incident_id is not None
+        )
         for item in journal.attempts:
             ownership = getattr(item, "ownership", None)
             if (
@@ -357,7 +460,7 @@ class ResponseStore(RecoveryStore):
         with context:
             recovery = self.recovery.read() if recovery_mode == "configured" else None
             with self.transaction() as (fd, journal):
-                cutoff = now() - timedelta(days=7)
+                cutoff = now() - timedelta(days=30)
                 pins = (
                     {
                         a.ownership.root_run_id
@@ -372,6 +475,33 @@ class ResponseStore(RecoveryStore):
                     for r in journal.runs
                     if any(i.phase != "settled" and i.matches(r) for i in journal.incidents)
                 )
+                from .providers.retention import (
+                    acquisition_roots,
+                    closure,
+                    incident_pins,
+                    prune_fields,
+                    recent_incidents,
+                )
+
+                provider_pins = incident_pins(journal) | recent_incidents(journal, cutoff)
+                initial_ids = (
+                    provider_pins
+                    | {
+                        i.incident_id
+                        for i in journal.incidents
+                        if i.phase != "settled" or i.received_at >= cutoff
+                    }
+                    | {iid for hold in journal.holds for iid in hold.incident_ids}
+                )
+                provider_pins, _ = closure(journal, initial_ids)
+                pins.update(
+                    r.root_run_id
+                    for r in journal.runs
+                    if any(
+                        i.incident_id in provider_pins and i.matches(r) for i in journal.incidents
+                    )
+                )
+                pins.update(acquisition_roots(journal))
                 if journal.holds:
                     pins.update(r.root_run_id for r in journal.runs)
                 runs = tuple(
@@ -383,6 +513,7 @@ class ResponseStore(RecoveryStore):
                 )
                 roots = {r.root_run_id for r in runs}
                 hold_ids = {x for h in journal.holds for x in h.incident_ids}
+                hold_ids.update(provider_pins)
                 incidents = tuple(
                     i
                     for i in journal.incidents
@@ -399,6 +530,7 @@ class ResponseStore(RecoveryStore):
                     incidents=incidents,
                     root_holds=tuple(x for x in journal.root_holds if x in roots),
                     releases=tuple(r for r in journal.releases if r.released_at >= cutoff),
+                    **prune_fields(journal, {i.incident_id for i in incidents}, roots, cutoff),
                 )
                 for run in journal.runs:
                     if run.root_run_id not in roots:
@@ -418,7 +550,11 @@ class ResponseStore(RecoveryStore):
             if self.anchor().recovery_mode == "not_configured"
             else ("confirmed" if incident.phase == "settled" else "pending")
         )
+        from .providers.report import controls, database_checks
+
         return PublicSummary(
+            provider_controls=controls(journal, incident.incident_id),
+            database_checks=database_checks(journal, incident.incident_id),
             incident_id=incident.incident_id,
             scope=incident.target.kind,
             phase=incident.phase,

@@ -377,3 +377,25 @@ def rebuild_report(writer, *, apply_reviews=True, persist=True):
     if persist:
         persist_report(writer, report)
     return report
+
+
+def provider_report(store, incident_id):
+    """Read independent Function 10 outcomes, closed inventory counts and safe timing only."""
+    from agent.response.providers.report import controls, instructions
+
+    from .closeout import provider_closeout
+
+    state = store.read()
+    return provider_closeout(state, incident_id) | {
+        "revision": state.revision,
+        "controls": controls(state, incident_id),
+        "instructions": instructions(state, incident_id),
+        "unknown_native_acquisitions": sum(
+            a.state in {"intent", "submitted", "uncertain"}
+            for a in getattr(state, "native_acquisitions", ())
+        ),
+        "active_probes": sum(
+            p.state not in {"cleaned", "denied_no_issuance"}
+            for p in getattr(state, "probe_acquisitions", ())
+        ),
+    }

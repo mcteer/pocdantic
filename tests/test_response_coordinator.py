@@ -23,9 +23,9 @@ def setup_attempt(tmp_path, settings, *, auto=False, known=True):
         import hashlib
 
         with response._lock("control.lock"), response._directory() as fd:
-            from agent.response.models import ResponseJournal
+            from agent.response.providers.journal import parse_journal
 
-            state = ResponseJournal.model_validate(response._read_file(fd, "state.json"))
+            state = parse_journal(response._read_file(fd, "state.json"))
             response._write(
                 fd,
                 state.model_copy(

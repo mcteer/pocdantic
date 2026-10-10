@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "installation_id": "00000000-0000-0000-0000-000000000000",
+  "environment_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "source_policy_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "workload_definition": "demo-agent",
+  "issuer": "https://id.example",
+  "revision": 1,
+  "bindings": [],
+  "sources": [
+    {
+      "schema_version": 1,
+      "alias": "demo-relay",
+      "issuer": "https://id.example",
+      "subject": "demo-collector",
+      "audience": "response-native-demo",
+      "schema_ref": "synthetic-event-v1",
+      "fixture_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+      "provenance": "synthetic",
+      "pointers": {
+        "event_id": "/event/id",
+        "occurred_at": "/event/time",
+        "rule": "/event/rule",
+        "object": "/event/object"
+      },
+      "objects": {
+        "demo-object": "demo-agent"
+      },
+      "allowed_scopes": [
+        "definition"
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "schema_version": 1,
+      "alias": "demo-rule",
+      "source": "demo-relay",
+      "native_rule": "demo-risk",
+      "reason": "suspected_compromise",
+      "scope": "definition",
+      "actions": [],
+      "bindings": [],
+      "required": []
+    }
+  ]
+}

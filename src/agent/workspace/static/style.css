@@ -102,3 +102,7 @@ summary {
 
 /* Separate incident restriction from provider credential-cleanup completion. */
 #containment-status:not(:empty) { border-left: 3px solid #b7791f; padding-left: .7rem; }
+
+/* Keep independent provider outcomes readable at narrow viewport widths. */
+#provider-controls { padding-left: 1.4rem; overflow-wrap: anywhere; }
+#provider-controls li { margin-block: .5rem; }

@@ -64,3 +64,5 @@ No project license has been selected. Bundled Spec Kit assets retain their
 Local readiness and immutable evidence closeout are described in the [runtime guide](docs/usage.md#local-readiness-and-closeout).
 
 Live work also requires [local response enrollment](docs/usage.md#incident-containment).
+Optional [provider remediation](docs/usage.md#provider-remediation) adds enrolled native-event
+intake, exact provider controls, independent checks, and guided recovery.

@@ -108,6 +108,7 @@ def create_workspace_app(
             app.state.diagnostics = diagnostics
             app.state.recovery = recovery_store
             app.state.response = runtime.response_store
+            store.subject_held = getattr(runtime.response_store, "subject_held", None)
             app.state.store = store
             app.state.manager = RunsManager(
                 runtime,

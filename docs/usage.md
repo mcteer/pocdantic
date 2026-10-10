@@ -533,3 +533,107 @@ Use the configured definition key from private status. Repeat `--incident` for o
 old roots or approvals. Exact lease cleanup does not prove that native downstream sessions
 or existing external JWTs have stopped. Native risk collection, user suspension, rotation
 and notification remain follow-on work.
+
+## Provider remediation
+
+Provider controls are optional exact-resource actions after local containment. Setup is
+local and read-only until enrolled events request configured mutations. Use dedicated test
+resources and the [configuration reference](configuration.md#provider-remediation-enrollment).
+
+Stop the workspace and response service, preserve private state, and run:
+
+```sh
+uv run agent respond migrate
+uv run agent respond providers prepare
+uv run agent respond providers readiness
+uv run agent respond providers status
+uv run agent respond providers enroll --revision N
+```
+
+Replace `N` with the current journal revision from status. Edit the generated private draft
+and secret map before readiness; each finding names the responsible operator and repair.
+Migration changes only the response snapshot from schema 1 to 2, preserving legacy holds,
+source policy, anchor and recovery records. It is idempotent and sends no provider requests.
+Older binaries reject schema 2. Never delete private state to bypass a hold.
+
+Start `agent respond serve` after enrollment. The relay posts bounded JSON to
+`POST /response/native/ALIAS`, authenticated with its separate enrolled response audience,
+exact subject, access-token purpose and `response:submit` scope. A successful response is
+only `{schema_version, incident_id, disposition}` after durable hold/plan commit. Replays
+return the existing incident; changed selected security content conflicts. Source events
+must be no more than 300 seconds old or 30 seconds in the future.
+
+Read a safe report without contacting providers:
+
+```sh
+uv run agent respond providers status --incident INCIDENT_UUID
+uv run agent respond providers reconcile --incident INCIDENT_UUID --revision N
+```
+
+Status makes no network calls. Reconcile reads exact metadata without reading credentials,
+sending notices or replaying mutations. Acknowledgment, readback and credential-loss proof
+remain separate. Each effect has durable submitted intent, a ten-second network deadline
+and a 120-second worker budget including drain. Restart changes unfinished submission to
+uncertain. A lost reply never causes automatic replay.
+
+Explicit recovery preserves predecessor history:
+
+```sh
+uv run agent respond providers retry --action ACTION_UUID --revision N --operator REVIEWER
+uv run agent respond providers import --incident INCIDENT_UUID --file PRIVATE_OBSERVATION.json --revision N --operator REVIEWER
+```
+
+Retry first reads current metadata where safe. If the change is already present it reconciles
+that attempt. Otherwise it creates a linked planned action after checking current holds and
+review, then runs the normal bounded worker once. Session retry requires fresh independent review
+because newer sessions could be affected. Uncertain static rotation cannot be retried from
+current metadata. Teams resend creates a new notice UUID/revision; 2xx means accepted,
+while delivery needs an imported correlated workflow/message receipt.
+
+Import files must be owner-only, regular, singly linked and at most 1 MiB. Use the strict
+`Observation` fields in the configuration model: exact installation/environment/implementation/
+enrollment digests, incident/action/binding UUIDs, generation, path, closed result/provenance,
+source digest and UTC observation time. Native intake evidence additionally pins the event
+digest and exact intake timestamp; delivery evidence pins notice UUID/revision. Independent
+review never turns synthetic execution into native evidence. Imported source material stays
+private; reports contain closed outcomes and opaque correlations.
+A configured native JWT login role remains a separate unverified fresh path: OAuth exchange
+denial and existing-accessor revocation cannot certify it. Definition closeout reports this
+limitation explicitly instead of claiming complete provider containment.
+
+For an authorized pre-event proof, place only the relevant credentials and peer root/binding
+UUIDs into an owner-only JSON file matching `ProofInput`, then pipe it through stdin:
+
+```sh
+uv run agent respond providers probe --root ROOT_UUID --revision N --scenario same_jwt --operator REVIEWER < PRIVATE_INPUT.json
+```
+
+Do not put credentials in flags, command substitutions, chat or committed fixtures. Supported
+scenarios are `same_jwt`, `fresh_issuance`, `native_token`, `user_sessions`, `dynamic_database`,
+`static_database`, and `notification_delivery`. Identity probes use captured tokens and a
+separately enrolled healthy peer. Database probes keep independent before-event connections
+open and distinguish native password rejection from native session termination. Wait for
+`probe_ready`, then generate the authorized enrolled event in a separate session. The probe
+releases effect ownership while waiting and reacquires it for privileged requests. Tokens,
+passwords, connections and native session IDs stay inside the trusted bounded process.
+
+`--incident INCIDENT_UUID` instead of `--root` reports missing baseline as inconclusive;
+it cannot invent before-event success. Notification delivery is receipt import only and
+never resends from a proof. Unexpected credential issuance creates durable acquisition
+intent and joins exact recovery before use; uncertain issuance stays pinned. Known issued
+JWTs remain pinned until their verified finite lifetime plus 30 seconds has elapsed. Token
+expiry establishes lifetime safety only, never an enforcement result.
+
+Exit codes: `0` completed/readable, `2` invalid provider input, `3` blocked setup/authority,
+and `4` partial or missing proof. Readiness inspects an inactive draft; enrollment is the
+explicit authority activation. Reports provide individual Function 10 outcomes and bounded
+clock intervals. Missing clock bounds, provider outages or network bans yield unavailable
+or inconclusive timing/denial claims. The workspace displays session-owned closed control
+and database outcomes; sign-out, expiry or subject suspension clears those displays.
+
+Restore provider resources manually through their responsible operator after reviewing the
+report. Local release requires all current holds/revisions, drained owners, confirmed exact
+cleanup, complete required provider proof, and reviewed old-credential safety. The same
+actor can be restored only after minting stopped and the complete maximum old-token lifetime
+plus 30 seconds elapsed. Old roots stay terminal; a successful release permits fresh roots.
+Actor/client configuration migration is outside this workflow.

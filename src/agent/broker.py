@@ -185,6 +185,8 @@ class DatabaseBroker:
             if actor_binding:
                 operation_observer.finish_operation(actor_binding)
             self.run_guard.check()
+            if self.run_guard:
+                self.run_guard.bind_actor(actor_claims["iss"], actor_claims["sub"])
             self.observe("actor_verified")
             verifier = JWTVerifier(oauth, s.vault_audience, token_typ=s.oauth_access_token_typ)
 

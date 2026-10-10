@@ -9,6 +9,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import SecretStr
 
+from agent.recovery.workers import descriptor_scope
+
 from .auth import SourceAuthenticator
 from .coordinator import Coordinator, parse_signal
 from .models import REASONS, ResponseError
@@ -16,6 +18,8 @@ from .store import ResponseStore
 
 STATUS = {
     "signal_invalid": 400,
+    "mapping_missing": 422,
+    "provider_capacity": 429,
     "source_invalid": 403,
     "target_unknown": 404,
     "event_conflict": 409,
@@ -35,13 +39,18 @@ def create_response_app(settings, *, store=None, transport=None):
     async def lifespan(app):
         """Claim one worker lifetime and drain dispatched cleanup before releasing it."""
         try:
-            with store._lock("worker.lock"):
+            with store._lock("worker.lock") as worker_fd, descriptor_scope(worker_fd):
                 from agent.telemetry import configure_telemetry
 
                 policy = store.policy()
+                if store.read().schema_version != 2:
+                    raise ResponseError("response_schema_migration_required")
                 telemetry = configure_telemetry(settings)
                 coordinator.telemetry = telemetry
                 coordinator.normalize()
+                from .providers.worker import Worker
+
+                Worker(store).normalize()
                 try:
                     store.prune()
                 except Exception as error:
@@ -162,6 +171,72 @@ def create_response_app(settings, *, store=None, transport=None):
                 item, new = coordinator.submit(parse_signal(raw), sender)
                 return JSONResponse(
                     store.summary(item).model_dump(mode="json"),
+                    status_code=202 if new else 200,
+                    headers={"Cache-Control": "no-store"},
+                )
+        except TimeoutError:
+            raise ResponseError("response_busy") from None
+
+    @app.post("/response/native/{profile_alias}")
+    async def native_submit(request: Request, profile_alias: str):
+        """Authenticate an enrolled native relay and persist containment within two seconds."""
+        from .auth import NativeAuthenticator
+        from .native import project
+
+        try:
+            async with asyncio.timeout(2):
+                state = store.read()
+                profile = (
+                    next((p for p in state.enrollment.sources if p.alias == profile_alias), None)
+                    if state.schema_version == 2 and state.enrollment
+                    else None
+                )
+                if profile is None:
+                    raise ResponseError("source_invalid")
+                header = request.headers.get("authorization", "")
+                if not header.startswith("Bearer "):
+                    raise ResponseError("source_invalid")
+                async with httpx.AsyncClient(
+                    timeout=1, transport=transport, follow_redirects=False, trust_env=False
+                ) as http:
+                    await NativeAuthenticator(settings, profile, http).verify(SecretStr(header[7:]))
+                if (
+                    request.headers.get("content-type", "").split(";")[0].strip()
+                    != "application/json"
+                ):
+                    raise ResponseError("signal_invalid")
+                if getattr(app.state, "worker", None) is not None and app.state.worker.done():
+                    raise ResponseError("response_storage_error")
+                if request.headers.get("content-encoding", "identity") not in {"", "identity"}:
+                    raise ResponseError("signal_invalid")
+                raw = b""
+                async for chunk in request.stream():
+                    if len(raw) + len(chunk) > 65536:
+                        return JSONResponse(
+                            {
+                                "schema_version": 1,
+                                "reason_code": "signal_invalid",
+                                "next_action": "correct_request",
+                            },
+                            status_code=413,
+                            headers={"Cache-Control": "no-store"},
+                        )
+                    raw += chunk
+                projection = project(raw, profile, state)
+                signal, rule = projection
+                item, new = coordinator.submit(
+                    signal,
+                    native=profile,
+                    rule_alias=rule.alias,
+                    native_digest=projection.selected_digest,
+                    native_enrollment_digest=projection.enrollment_digest,
+                )
+                return JSONResponse(
+                    {
+                        "schema_version": 1,
+                        "incident_id": str(item.incident_id),
+                        "disposition": "accepted" if new else "duplicate",
+                    },
                     status_code=202 if new else 200,
                     headers={"Cache-Control": "no-store"},
                 )

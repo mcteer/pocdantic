@@ -58,3 +58,22 @@ class SourceAuthenticator:
             return source
         except Exception:
             raise ResponseError("source_invalid") from None
+
+
+class NativeAuthenticator:
+    """Verify one separately enrolled relay profile using existing pinned JWT rules."""
+
+    def __init__(self, settings, profile, http):
+        """Capture the exact profile; no body-supplied identity or audience is accepted."""
+        from types import SimpleNamespace
+
+        self.profile = profile
+        self.auth = SourceAuthenticator(
+            settings,
+            SimpleNamespace(audience=profile.audience, intake_mode="relay", sources=(profile,)),
+            http,
+        )
+
+    async def verify(self, token):
+        """Require signed freshness, submit scope, issuer and exact relay subject."""
+        return await self.auth.verify(token)
