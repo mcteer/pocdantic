@@ -177,3 +177,38 @@ merging after green CI. The earlier delivery disposition above records the prece
 checkpoint. Main remains unprotected (GitHub returned HTTP 404 on recheck); the explicit
 merge instruction takes precedence for this delivery. No repository protection or
 provider settings are changed. Live acceptance remains blocked as recorded above.
+
+### Live operational follow-up — 2026-10-10
+
+The maintainer authorized provider configuration, prospective enrollment, and live
+checks. A refreshed private Vault operator token authenticated successfully. The
+installed database ACL and the agent-registry ceiling ACL now require `lease_id`
+and boolean `sync=true` for cleanup, retaining the existing credential-role boundary.
+The IBM Verify authorization-detail schema was updated only to allow `[true]` for
+`allowed_parameters.sync`; other type settings were preserved. All changes were read
+back from their provider. Backups and observations stay beneath ignored `.local/`.
+
+Explicit recovery enrollment succeeded. Read-only production diagnostics observed
+identity metadata, an unsealed Vault endpoint, and database TCP connectivity. The
+workspace then completed fresh IBMid authentication in WebKit.
+
+The first synthetic-record read succeeded but delegated cleanup returned HTTP 403:
+the initially overlooked registry ceiling still excluded `sync`. The durable journal
+retained the exact known handle and blocked admission. One authorized operator
+`recover revoke` completed synchronous cleanup and durably resolved that incident.
+The browser's recovery check cleared quarantine while preserving the signed-in session
+and the original failed result. The registry ceiling was then migrated and verified.
+
+A new explicitly submitted read completed with delegated synchronous cleanup and a
+terminal durable receipt. Both attempts are resolved; recovery status is clear. A
+separate administrative exact-lease lookup reported each handle absent. The same
+browser session remained signed in throughout repair and the successful new submission.
+No ambiguous acquisition was manufactured, no old task was replayed, and no passwords
+were tested against the live database.
+
+These observations establish the normal-read and genuine known-handle recovery flows
+operationally. They do not substitute for original source-system audit pairs or explicit
+native-evidence review. Unknown-acquisition linkage and pre-execution denial remain
+unverified; the historical 003/004 gaps and all 15 acceptance-manifest dispositions
+remain unchanged. No raw evidence, credentials, provider identifiers, or lease handles
+are included in this ledger.
