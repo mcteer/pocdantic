@@ -119,6 +119,27 @@ The optional HTTP server binds to `127.0.0.1:8000`; `POST /runs` accepts the sam
 request with an `Authorization: Bearer` header. `/health` exposes no configuration.
 Use the deployment platform for TLS, scheduling, workload attestation and secrets.
 
+## Delegated database access
+
+The database broker verifies the human API token, obtains a separate agent token,
+and exchanges both for an exact `vault:path_access` read grant. Vault must bind the
+issuer and external subject IDs to explicit human and agent aliases. The human's
+baseline policy, agent registry ceiling and requested authorization details must
+all permit the operation. The runtime never falls back to an operator Vault token.
+
+After the fixed SELECT query, the broker requests a separate cleanup grant with
+`required_parameters: ["lease_id"]` and `allowed_parameters` containing only the
+acquired lease ID. Vault namespace suffixes in returned lease IDs are supported.
+Cleanup failure prevents a successful result; cancellation still waits for cleanup.
+
+Configure the provider's authorization detail type using
+[config/vault-path-access.schema.json](config/vault-path-access.schema.json).
+A schema containing only `type`, `path` and `capabilities` rejects the parameter-bound
+cleanup request. Verify schema setup requires `manageAuthDetailTypes` on the
+administrative API client; agent execution does not require that entitlement.
+The schema validates the grant's structure. Provider authorization and Vault policies
+must independently enforce which human and agent can request those grants.
+
 ## Compose alternate agents
 
 Edit `config/agents.json` or supply `POCDANTIC_PROFILES_FILE`. Each definition selects

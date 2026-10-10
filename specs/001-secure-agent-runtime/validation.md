@@ -2,67 +2,73 @@
 
 Owner: mcteer. Observed: 2026-10-09.
 
-## Software baseline
+## Implementation result
 
-85 deterministic harness tests passed with the server, Logfire and PostgreSQL extras.
-Lint, formatting, lockfile, configuration and distribution privacy checks passed.
-An installed slim-base wheel completed the offline demo outside the repository.
+All T001–T031 implementation tasks are complete. The real signed human/agent,
+Verify token-exchange, HCP Vault and PostgreSQL flow completed successfully with
+the live model. This completes feature 001 implementation; broader customer
+acceptance and deployment attestation remain separately gated below.
 
-## Live component checks
+## Software validation
 
-Verify action-bound phone approval completed a simulated infrastructure restart.
-HCP Vault issued SELECT-only PostgreSQL credentials over trusted TLS.
-Read succeeded, UPDATE was denied, unrelated Vault paths were denied, the leased
-role was removed on revoke and a fresh read with revoked credentials was rejected.
-The scoped validation token was revoked. No administrative credential was passed to
-the model. Raw source-system evidence and target configuration remain private.
+90 deterministic harness tests and six ignored local chat-host tests passed.
+Lint, formatting, locked dependencies, Spec Kit, runtime configuration, repository
+privacy and distribution privacy checks passed. An installed slim-base wheel
+completed the offline demo outside the repository. Playwright/WebKit desktop and
+mobile chat smoke checks passed; screenshots remain private.
 
-## Remaining acceptance
+Signed mock-transport tests cover separate subject/actor verification, exact returned
+RAR claims, scoped namespace-qualified leases, distinct exact-lease cleanup grants,
+cleanup failure and cancellation. Conversation history preserves context while fresh
+policy and containment checks run for every request. Chat tests cover host/origin,
+CSRF, session expiration, PKCE callback binding/replay and private local diagnostic
+control. The entire chat/ directory stays ignored and publication guards reject it.
 
-Full signed user/actor delegation, workload attestation, telemetry export and
-deployment-dependent VIP/SVID evidence remain pending. Component tests do not satisfy
-those gates. All 15 full acceptance criteria retain explicit blocked dispositions
-pending the required reviewed evidence.
+## Live delegated credential proof
 
-## Governance
+The human signed in through a separate confidential OIDC application using S256 PKCE.
+The broker independently verified the human API token and client-credentials actor,
+then verified the exchanged Vault-audience token's exact subject, actor and read RAR.
+Vault issued an ephemeral database credential and the fixed record-1 SELECT succeeded
+against PostgreSQL over trusted TLS. A second signed token exchange authorized only
+sys/leases/revoke with the acquired lease ID as its required and sole allowed value.
+The broker revoked that lease before returning a completed result. An independent
+operator lookup subsequently returned invalid lease, confirming removal.
 
-Constitution 1.2.0, sanitized Spec Kit artifacts, review workflow and ADRs are versioned.
-CI validates all features independently of machine-local state. Customer design sources,
-credentials, live inventories and raw evidence remain excluded.
+No operator Vault credential was used in agent execution. Administrative credentials
+were used separately for provisioning and the independent post-run lookup. Raw tokens,
+claims, leases, source-system configuration and diagnostic evidence remain private.
+Earlier component checks proved UPDATE denial, unrelated Vault-path denial, role
+removal and rejection of revoked database credentials. A direct actor-only request
+without human delegation or RAR was denied by live Vault.
 
-## Delegated identity follow-up
+## Integration corrections
 
-Signed mock-transport tests prove independently validated human and actor identity,
-exact returned subject/actor/RAR claims, and distinct parameter-bound lease cleanup.
-Failure and cancellation revoke the acquired lease. Host-supplied conversation history
-preserves context without bypassing fresh run policy and containment checks.
+Both PoC applications use Verify's newer OIDC provider. The administrative API client
+retains independent discovery configuration. Standard application management created
+the human application using existing lifecycle permissions; dynamic registration was
+unavailable. Both applications have single-user assignments and disabled birthright
+access. Vault has explicit issuer/external-ID aliases and a registered agent with a
+narrow ceiling; RAR is required and default OAuth policies are disabled.
 
-Five local chat-host tests pass separately, covering shell assets, host/origin checks,
-expired sessions, CSRF, PKCE binding, callback replay and token privacy. The entire
-chat/ directory is ignored and rejected by the publish policy. Browser visual review
-is pending because no browser surface is available in this session.
+Vault namespace-qualified lease IDs require a dotted suffix; cleanup now validates
+that suffix while rejecting other roles, nested paths and traversal. Verify's existing
+vault:path_access schema rejected parameter-bound cleanup fields. Its schema was
+extended with required_parameters and allowed_parameters while preserving its other
+configuration. The reusable schema in config/ and README document this prerequisite.
 
-Dynamic registration returned HTTP 403 despite the configured lifecycle entitlement.
-The standard application-management API succeeded with that same client. A separate
-human application now has signed JWT access tokens, S256 PKCE, the three approved
-agent scopes, and a single-user assignment; birthright access is disabled. Credentials
-remain private. The local host's login redirect matches the registered callback.
-T022/T030 remain pending real human sign-in and the delegated live credential chain.
+## Remaining customer acceptance
 
+Implementation completion does not establish all customer/vendor acceptance criteria.
+The 15 full acceptance records remain blocked pending owner-reviewed evidence, audit
+correlation, telemetry export, deployment-specific workload attestation, VIP/SVID,
+suspension and remediation behavior. Deployment remains configurable as requested.
+The infrastructure write remains the selected simulated restart. Verify action-bound
+phone approval for that simulation was separately proven; it is not a live
+infrastructure change.
 
-## Live provider and identity preparation
+## Governance and privacy
 
-Both PoC applications use Verify's newer OIDC provider, which advertises token exchange.
-The agent JWT signature, issuer and audience verify against that provider. The administrative
-API client retains its independent provider configuration. HCP Vault accepted a separate
-OAuth profile for the new issuer, explicit human and actor aliases, and an agent registry
-record with a narrow database-read/exact-lease-revocation ceiling. RAR remains required;
-default policies are disabled for the new OAuth profile. The agent baseline is empty.
-
-These setup calls succeeded against the live services; they do not establish successful
-user delegation or database use. The local host captures sanitized stage evidence privately
-and runs read-only record-1 validation following human sign-in. T022/T030 remain pending.
-
-A live direct-actor credential request returned HTTP 403 without human delegation
-or RAR, confirming that the agent cannot acquire a database lease on its own.
-The distribution guard explicitly rejects chat/ paths even if packaging configuration changes.
+Constitution 1.2.0, sanitized Spec Kit artifacts, ADRs and contribution/review workflows
+are versioned. CI validates every feature without private machine state. Customer
+design sources, credentials, local chat, inventories and raw evidence stay excluded.

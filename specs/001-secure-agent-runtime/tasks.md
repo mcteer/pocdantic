@@ -47,7 +47,7 @@ source-system evidence and review. Never substitute synthetic results for vendor
 ## Database integration follow-up
 - [X] T020 Provision existing HCP Vault against reachable TLS PostgreSQL and verify leases.
 - [X] T021 Add pooler routing and database-reader capability profile.
-- [ ] T022 Complete live signed user/actor exchange and exact RAR verification.
+- [X] T022 Complete live signed user/actor exchange and exact RAR verification.
 
 
 ## Governance and contribution documentation
@@ -61,6 +61,6 @@ source-system evidence and review. Never substitute synthetic results for vendor
 - [X] T027 Verify subject and actor before exchange; validate exact returned delegation grants.
 - [X] T028 Request exact-lease cleanup authorization separately from credential-read authorization.
 - [X] T029 Test signed end-to-end broker contracts, denial and cancellation cleanup.
-- [ ] T030 Exercise the real user/agent/Vault/database chain and capture private evidence.
+- [X] T030 Exercise the real user/agent/Vault/database chain and capture private evidence.
 
 - [X] T031 Build ignored local chat frontend with user-isolated conversation context and session boundary tests.

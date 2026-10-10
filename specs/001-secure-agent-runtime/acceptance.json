@@ -11,7 +11,7 @@
     "criterion": "UC1-02",
     "status": "blocked",
     "owner": "mcteer / integration owner",
-    "reason": "Live lease/revoke proven; delegated user/actor exchange still pending",
+    "reason": "Live signed human/actor exchange, exact read/cleanup grants, database read and lease removal proven; acceptance review pending",
     "source": "none",
     "references": []
   },
@@ -27,7 +27,7 @@
     "criterion": "UC1-04",
     "status": "blocked",
     "owner": "mcteer / integration owner",
-    "reason": "Live Vault out-of-policy denial pending",
+    "reason": "Live unrelated-path and actor-only denials captured; acceptance review pending",
     "source": "none",
     "references": []
   },
@@ -51,7 +51,7 @@
     "criterion": "UC2-02",
     "status": "blocked",
     "owner": "mcteer / integration owner",
-    "reason": "Phone push permissions and bound decision evidence pending",
+    "reason": "Live action-bound phone approval for simulated restart proven; acceptance review pending",
     "source": "none",
     "references": []
   },
@@ -99,7 +99,7 @@
     "criterion": "UC4-01",
     "status": "blocked",
     "owner": "mcteer / integration owner",
-    "reason": "Attested workload bootstrap, SVID and registry pending",
+    "reason": "OAuth entity aliases and registry configured; deployment-specific attested workload bootstrap and SVID pending",
     "source": "none",
     "references": []
   },
