@@ -30,6 +30,8 @@ class VerifyClient:
         self.tenant, self.token, self.http = tenant.rstrip("/"), token, http
         self.operation_observer = operation_observer
         self._last_response = b""
+        self.approval_context = None
+        self.last_decision = None
 
     async def request(
         self, method: str, path: str, *, body: dict | None = None, params: dict | None = None
@@ -45,7 +47,11 @@ class VerifyClient:
                 phase="approval",
                 source_kind="verify",
                 source_instance=self.tenant,
+                approval_ref=self.approval_context.id if self.approval_context else None,
+                action_digest=self.approval_context.digest if self.approval_context else None,
             )
+        if observer and observer.failed:
+            raise SecurityError("storage_error")
         try:
             response = await self.http.request(
                 method,
@@ -63,11 +69,20 @@ class VerifyClient:
             data = response.json()
             if binding:
                 observer.finish_operation(binding, native_transaction_id=data.get("id"))
+                if observer.failed:
+                    raise SecurityError("storage_error")
             return data
         except (httpx.HTTPError, ValueError, TypeError):
             raise SecurityError("verify_request_failed") from None
 
     def capture_transaction(self, approval, data, approved):
+        self.last_decision = (
+            "approved"
+            if approved
+            else "denied"
+            if data.get("state") in {"DENIED", "VERIFY_DENIED", "USER_DENIED"}
+            else "unverified"
+        )
         observer = self.operation_observer
         if observer and observer.validation_id and observer.observation_id:
             try:
@@ -76,6 +91,9 @@ class VerifyClient:
                 )
             except Exception:
                 observer.failed = True
+                raise SecurityError("storage_error") from None
+            if observer.failed:
+                raise SecurityError("storage_error")
 
     async def authenticators(self) -> dict:
         return await self.request("GET", "v1.0/authenticators")
@@ -83,6 +101,7 @@ class VerifyClient:
     async def initiate(
         self, authenticator_id: str, factor_id: str, approval: Approval, action: Action
     ) -> str:
+        self.approval_context = approval
         data = await self.request(
             "POST",
             f"v1.0/authenticators/{identifier(authenticator_id)}/verifications",
@@ -107,6 +126,8 @@ class VerifyClient:
                 },
             },
         )
+        if self.operation_observer and self.operation_observer.failed:
+            raise SecurityError("storage_error")
         try:
             return identifier(data["id"])
         except (KeyError, TypeError):
@@ -122,6 +143,7 @@ class VerifyClient:
         timeout: float = 120,
         poll: float = 2,
     ) -> bool:
+        self.approval_context = approval
         deadline = min(approval.expires_at, time.monotonic() + timeout)
         path = (
             f"v1.0/authenticators/{identifier(authenticator_id)}/verifications/"
@@ -166,6 +188,7 @@ class VerifyClient:
                 "TIMEOUT",
                 "VERIFY_FAILED",
                 "VERIFY_DENIED",
+                "USER_DENIED",
                 "EXPIRED",
             }:
                 self.capture_transaction(approval, data, False)

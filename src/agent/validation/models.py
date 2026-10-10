@@ -61,6 +61,13 @@ class Reason(StrEnum):
     suite_timeout = "suite_timeout"
     live_mode_required = "live_mode_required"
     interactive_required = "interactive_required"
+    external_unverified = "external_unverified"
+    context_missing = "context_missing"
+    context_mismatch = "context_mismatch"
+    selection_incomplete = "selection_incomplete"
+    input_changed = "input_changed"
+    snapshot_stale = "snapshot_stale"
+    decision_unverified = "decision_unverified"
 
 
 def now() -> datetime:
@@ -121,6 +128,9 @@ def implementation_revision():
             "review",
             "report",
             "commands",
+            "context",
+            "readiness",
+            "closeout",
         )
     ]
     return digest(
@@ -288,6 +298,8 @@ class PrivateOperationBinding(Contract):
     phase: Literal["identity", "credential", "database", "cleanup", "approval", "telemetry"]
     source_kind: Source
     expected_outcome: Literal["success", "denied"] = "success"
+    approval_ref: UUID | None = Field(default=None, repr=False)
+    action_digest: Digest | None = Field(default=None, repr=False)
     source_instance: str = Field(min_length=1, max_length=128, repr=False)
     native_request_id: str | None = Field(default=None, min_length=1, max_length=512, repr=False)
     native_transaction_id: str | None = Field(
@@ -304,7 +316,16 @@ class PrivateOperationBinding(Contract):
 class ImportManifest(Contract):
     source_kind: Source
     format_label: Literal["vault-jsonl", "verify-events", "logfire-rows"]
-    format_version: Literal[1] = 1
+    format_version: Literal[1, 2] = 1
+
+    @field_validator("format_version", mode="before")
+    @classmethod
+    def exact_format_version(cls, value):
+        if type(value) is not int or value not in (1, 2):
+            raise ValueError("schema_invalid")
+        return value
+
+    native_project_id: str | None = Field(default=None, min_length=1, max_length=128, repr=False)
     source_instance: str = Field(min_length=1, max_length=128, repr=False)
     window_start: datetime
     window_end: datetime
@@ -314,6 +335,8 @@ class ImportManifest(Contract):
 
     @model_validator(mode="after")
     def window(self):
+        if self.native_project_id and (self.format_version != 2 or self.source_kind != "logfire"):
+            raise ValueError("schema_invalid")
         if self.window_start > self.window_end:
             raise ValueError("schema_invalid")
         expected = {"vault": "vault-jsonl", "verify": "verify-events", "logfire": "logfire-rows"}
@@ -391,7 +414,180 @@ class TransactionEvidence(Contract):
     native_transaction_id: NativeId = Field(repr=False)
     approval_ref: UUID
     action_digest: Digest
-    decision: Literal["approved", "denied"]
+    decision: Literal["approved", "denied", "unverified"]
     observed_at: datetime = Field(default_factory=now)
     raw_digest: Digest
     provenance: Literal["transaction_response"] = "transaction_response"
+
+
+class DeploymentContext(Contract):
+    selectors: dict[str, str | int | bool | None] = Field(repr=False)
+    digest: Digest = Field(repr=False)
+
+    @model_validator(mode="after")
+    def consistent(self):
+        if digest(self.selectors) != self.digest:
+            raise ValueError("digest_mismatch")
+        return self
+
+
+CheckId = Literal[
+    "human-token",
+    "oauth-client",
+    "oauth-audience",
+    "oauth-config",
+    "profiles",
+    "postgres-extra",
+    "vault-target",
+    "delegated-audiences",
+    "database-target",
+    "database-tls",
+    "phone-enabled",
+    "phone-client",
+    "phone-mapping",
+    "configured-exporter",
+    "telemetry-config",
+    "vault-export",
+    "verify-events-export",
+    "logfire-export",
+    "remote-identity",
+    "remote-permissions",
+    "remote-reachability",
+]
+
+
+class ReadinessCheck(Contract):
+    check_id: CheckId
+    scenario: Literal[
+        "delegated-database-read", "actor-only-denial", "phone-approved", "phone-denied"
+    ]
+    section: Literal["execution", "evidence"]
+    state: Literal["configured", "missing", "invalid", "unverified", "not_applicable"]
+    owner: Literal["operator", "integration_owner", "reviewer"] = "operator"
+    reason: Reason | None = None
+
+
+class ReadinessReport(Contract):
+    suite: Literal["live-database", "live-phone"]
+    selected: tuple[Label, ...] = Field(min_length=1, max_length=2)
+    checks: tuple[ReadinessCheck, ...]
+    execution_ready: bool
+    evidence_ready: bool
+    external_verified: Literal[False] = False
+    generated_at: datetime = Field(default_factory=now)
+
+    @model_validator(mode="after")
+    def consistent(self):
+        keys = [(c.scenario, c.section, c.check_id) for c in self.checks]
+        if len(set(self.selected)) != len(self.selected) or len(keys) != len(set(keys)):
+            raise ValueError("schema_invalid")
+        if any(c.scenario not in self.selected for c in self.checks):
+            raise ValueError("schema_invalid")
+        for section in ("execution", "evidence"):
+            expected = not any(
+                c.section == section and c.state in {"missing", "invalid"} for c in self.checks
+            )
+            if getattr(self, section + "_ready") != expected:
+                raise ValueError("schema_invalid")
+        return self
+
+    def exit_code(self):
+        return 0 if self.execution_ready and self.evidence_ready else 2
+
+
+LiveCase = Literal["delegated-database-read", "actor-only-denial", "phone-approved", "phone-denied"]
+LIVE_CASES = ("delegated-database-read", "actor-only-denial", "phone-approved", "phone-denied")
+
+
+class CloseoutMember(Contract):
+    validation_id: UUID
+    report_revision: Digest
+    input_revision: Digest
+
+
+class CaseReference(Contract):
+    validation_id: UUID
+    observation_id: UUID
+
+
+class CloseoutCase(Contract):
+    scenario: LiveCase
+    references: tuple[CaseReference, ...] = Field(max_length=4)
+    operational: Outcome
+    evidence: Outcome
+    cleanup: Cleanup = "not_acquired"
+    reasons: tuple[Reason, ...] = ()
+    owner: Literal["operator", "integration_owner", "reviewer"] = "integration_owner"
+
+
+class CriterionMember(Contract):
+    validation_id: UUID
+    status: Literal["pass", "fail", "blocked", "alternative"]
+    reason: Reason | None = None
+    evidence_revision: Digest
+    review_id: UUID | None = None
+
+
+class CloseoutCriterion(Contract):
+    criterion: str
+    members: tuple[CriterionMember, ...] = Field(min_length=1, max_length=4)
+
+    @field_validator("criterion")
+    @classmethod
+    def known_criterion(cls, value):
+        from ..evidence import CRITERIA
+
+        if value not in CRITERIA:
+            raise ValueError("schema_invalid")
+        return value
+
+
+class CloseoutSnapshot(Contract):
+    snapshot_id: UUID = Field(default_factory=uuid4)
+    created_at: datetime = Field(default_factory=now)
+    content_revision: Digest
+    members: tuple[CloseoutMember, ...] = Field(min_length=1, max_length=4)
+    cases: tuple[CloseoutCase, ...]
+    criteria: tuple[CloseoutCriterion, ...]
+    operational: Outcome
+    evidence: Outcome
+    blockers: tuple[Reason, ...] = ()
+    unsupported: Literal["verify-events-linkage"] = "verify-events-linkage"
+    unsupported_owner: Literal["integration_owner"] = "integration_owner"
+
+    @model_validator(mode="after")
+    def exact_projection(self):
+        from ..evidence import CRITERIA
+
+        if (
+            tuple(c.scenario for c in self.cases) != LIVE_CASES
+            or tuple(c.criterion for c in self.criteria) != CRITERIA
+        ):
+            raise ValueError("schema_invalid")
+        ids = tuple(m.validation_id for m in self.members)
+        if len(set(ids)) != len(ids) or ids != tuple(sorted(ids, key=str)):
+            raise ValueError("schema_invalid")
+        if any(tuple(m.validation_id for m in c.members) != ids for c in self.criteria):
+            raise ValueError("schema_invalid")
+        content = self.model_dump(
+            exclude={"snapshot_id", "created_at", "content_revision"}, mode="json"
+        )
+        if digest(content) != self.content_revision:
+            raise ValueError("digest_mismatch")
+        return self
+
+
+class CloseoutResult(Contract):
+    snapshot: CloseoutSnapshot
+    applicability: Literal["current", "stale", "missing", "failed"] = "current"
+    reason: Reason | None = None
+
+    def exit_code(self):
+        outcomes = {self.snapshot.operational, self.snapshot.evidence}
+        if "interrupted" in outcomes:
+            return 130
+        if "fail" in outcomes or self.applicability == "failed":
+            return 1
+        if "blocked" in outcomes or self.applicability != "current":
+            return 2
+        return 0

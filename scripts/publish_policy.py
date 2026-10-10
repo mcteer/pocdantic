@@ -22,12 +22,16 @@ def generated_private(name: str) -> bool:
         "delivery.json",
         "integrity.json",
         "definitions.json",
+        "context.json",
+        "manifest.json",
+        "closeout.json",
+        "closeout.md",
         "report.json",
         "report.md",
     }:
         return True
     return p.suffix in {".json", ".md", ".raw", ".jsonl"} and p.name.startswith(
-        ("source-", "artifact-", "observation-", "review-", "report-", "transaction-")
+        ("source-", "artifact-", "observation-", "review-", "report-", "transaction-", "closeout-")
     )
 
 

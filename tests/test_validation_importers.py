@@ -87,3 +87,44 @@ def test_import_is_private_immutable_and_rechecks_digest(tmp_path):
         assert writer.read_bytes(f"source-{artifact.artifact_id}.raw") == raw
         assert artifact.event_count == 1
         assert (writer.path / f"source-{artifact.artifact_id}.raw").stat().st_mode & 0o777 == 0o600
+
+
+def test_native_v2_vault_lease_and_conflict():
+    m = manifest(format_version=2)
+    row = {
+        "type": "response",
+        "time": m.window_start.isoformat(),
+        "request": {"id": "request", "path": "database/creds/read"},
+        "response": {"secret": {"lease_id": "native-lease"}},
+    }
+    assert normalize(json.dumps(row).encode(), m)[0].native_lease_id == "native-lease"
+    row["response"]["lease_id"] = "different"
+    with pytest.raises(StoreError, match="evidence_contradicted"):
+        normalize(json.dumps(row).encode(), m)
+
+
+def test_native_v2_logfire_envelopes_and_project_kinds():
+    m = manifest("logfire", format_version=2)
+    row = {
+        "trace_id": "a" * 32,
+        "span_id": "b" * 16,
+        "start_timestamp": m.window_start.isoformat(),
+        "attributes": {},
+    }
+    expected = normalize(json.dumps([row]).encode(), m)
+    schema = {"fields": [{"name": k, "data_type": "Utf8", "nullable": True} for k in row]}
+    for envelope in ({"rows": [row]}, {"schema": schema, "data": [row]}):
+        assert normalize(json.dumps(envelope).encode(), m) == expected
+    with pytest.raises(StoreError):
+        normalize(json.dumps({"schema": schema, "data": [row], "rows": [row]}).encode(), m)
+    with pytest.raises(StoreError, match="source_unsupported"):
+        normalize(json.dumps([row | {"project_id": "native-id"}]).encode(), m)
+    m = m.model_copy(update={"native_project_id": "native-id"})
+    normalize(
+        json.dumps([row | {"project_id": "native-id", "project_name": "private-source"}]).encode(),
+        m,
+    )
+    with pytest.raises(StoreError, match="evidence_contradicted"):
+        normalize(
+            json.dumps([row | {"project_id": "native-id", "project_name": "wrong"}]).encode(), m
+        )

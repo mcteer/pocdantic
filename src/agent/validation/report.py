@@ -78,6 +78,7 @@ class ValidationReport(Contract):
         if (
             "fail" in outcomes
             or Reason.digest_mismatch in self.blockers
+            or Reason.evidence_contradicted in self.blockers
             or any(c.outcome == "fail" for c in self.correlations)
             or Reason.telemetry_export_failed in self.blockers
         ):
@@ -213,7 +214,7 @@ def read_bindings(writer):
 def seal_execution(writer):
     import hashlib
 
-    names = ["run.json", "events.jsonl", "bindings.jsonl", "delivery.json"]
+    names = ["run.json", "events.jsonl", "bindings.jsonl", "delivery.json", "context.json"]
     names += [p.name for p in writer.path.glob("observation-*.json")]
     values = {
         n: hashlib.sha256(writer.read_bytes(n)).hexdigest()
@@ -223,7 +224,7 @@ def seal_execution(writer):
     writer.write_json("integrity.json", values)
 
 
-def rebuild_report(writer, *, apply_reviews=True):
+def rebuild_report(writer, *, apply_reviews=True, persist=True):
     import hashlib
     from uuid import uuid5
 
@@ -279,11 +280,19 @@ def rebuild_report(writer, *, apply_reviews=True):
     try:
         artifacts = load_artifacts(writer)
         transactions = load_transactions(writer)
-    except StoreError:
+    except StoreError as error:
         artifacts = []
         transactions = []
-        blockers.append(Reason.digest_mismatch)
+        blockers.append(Reason(str(error)))
     bindings = read_bindings(writer)
+    for b in bindings:
+        observation = next((o for o in observations if o.observation_id == b.observation_id), None)
+        if (
+            b.validation_id != run.validation_id
+            or observation is None
+            or (b.run_id != observation.run_id and b.parent_run_id != observation.run_id)
+        ):
+            blockers.append(Reason.evidence_contradicted)
     correlations = [correlate(b, artifacts) for b in bindings]
     if run.mode == "live":
         if run.suite == "live-database":
@@ -340,5 +349,6 @@ def rebuild_report(writer, *, apply_reviews=True):
             evidence_inputs=inputs,
             acceptance=acceptance,
         )
-    persist_report(writer, report)
+    if persist:
+        persist_report(writer, report)
     return report

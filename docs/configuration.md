@@ -94,3 +94,12 @@ Agent OAuth credentials and administrative Verify API credentials serve differen
   `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY`, with the corresponding extra.
 
 See the [runtime guide](usage.md) for commands and deployment requirements.
+
+`agent validate ready` uses these existing settings locally; it adds no configuration variables.
+Execution prerequisites vary by selected case. Evidence readiness also needs the optional
+Logfire exporter and private project alias, while manual source export access remains unverified.
+Do not supply a service read token to the runtime for this workflow.
+
+Live deployment contexts record only explicit non-secret selectors and profile/CA digests.
+Context and closeout files belong beneath ignored `.local/`, alongside raw exports and reviews.
+Moving these generated files into a tracked path is rejected by publication checks.

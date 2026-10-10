@@ -118,3 +118,31 @@ async def test_cli_import_review_report_without_provider_requests(tmp_path, monk
     final = json.loads(capsys.readouterr().out)
     assert len(final["acceptance"]) == 15
     assert "canary" not in json.dumps(final)
+
+
+async def test_ready_cli_selection_and_closeout_guards(tmp_path, monkeypatch, capsys):
+    import pytest
+
+    monkeypatch.chdir(tmp_path)
+    for arguments in [
+        ("ready", "--suite", "live-phone"),
+        (
+            "ready",
+            "--suite",
+            "live-database",
+            "--scenario",
+            "actor-only-denial",
+            "--scenario",
+            "actor-only-denial",
+        ),
+    ]:
+        assert await execute_validation(parse(*arguments)) == 2
+        assert json.loads(capsys.readouterr().out)["status"] == "blocked"
+    assert not (tmp_path / ".local").exists()
+    for arguments in [
+        ("ready", "--suite", "live-database", "--root", ".local"),
+        ("closeout",),
+        ("closeout", "--run", "invalid"),
+    ]:
+        with pytest.raises(SystemExit):
+            parse(*arguments)

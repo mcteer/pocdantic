@@ -72,6 +72,10 @@ async def run_suite(
     telemetry = Telemetry()
     with store.create(run.validation_id) as writer:
         writer.write_json("run.json", run)
+        if mode == "live":
+            from .context import capture_context
+
+            writer.write_json("context.json", capture_context(settings))
         writer.write_bytes("events.jsonl", b"")
         telemetry_reason = None
         if mode == "live" and settings.logfire_token:

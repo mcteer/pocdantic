@@ -48,11 +48,12 @@ class StoreSink:
             native_transaction_id=data["id"],
             approval_ref=approval.id,
             action_digest=approval.digest,
-            decision="approved" if approved else "denied",
+            decision=observer_decision(data, approved),
             raw_digest=hashlib.sha256(raw).hexdigest(),
         )
         self.writer.write_bytes(f"source-{value.artifact_id}.raw", raw)
         self.writer.write_json(f"transaction-{value.artifact_id}.json", value)
+        self.phone_decision = value.decision
 
     def bind(self, binding):
         # Immutable stages retain the pre-call record and subsequent native response binding.
@@ -198,3 +199,13 @@ class BoundObserver:
         except Exception:
             self.failed = True
             return binding
+
+
+def observer_decision(data, approved):
+    return (
+        "approved"
+        if approved
+        else "denied"
+        if data.get("state") in {"DENIED", "VERIFY_DENIED", "USER_DENIED"}
+        else "unverified"
+    )

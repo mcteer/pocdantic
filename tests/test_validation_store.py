@@ -72,3 +72,33 @@ def test_stable_definition_map_and_ignored_root(store, tmp_path):
         PrivateStore(tmp_path / ".local/validation", project=tmp_path)
     (tmp_path / ".gitignore").write_text(".local/\n")
     assert PrivateStore(tmp_path / ".local/validation", project=tmp_path)
+
+
+def test_multi_lock_contention_releases_and_inventory(store):
+    ids = [uuid4(), uuid4()]
+    for i in ids:
+        with store.create(i) as w:
+            w.write_json("run.json", {"value": str(i)})
+    with store.open(ids[1]):
+        with pytest.raises(StoreError):
+            with store.open_many(ids):
+                pass
+    with store.open_many(ids) as writers:
+        assert list(writers) == sorted(ids, key=str)
+        before = writers[ids[0]].inventory()
+        writers[ids[0]].write_json("new.json", {})
+        assert before != writers[ids[0]].inventory()
+
+
+def test_closeout_storage_immutable_and_quota(store, monkeypatch):
+    snapshot = uuid4()
+    with store.create_closeout(snapshot) as writer:
+        writer.write_json("closeout.json", {"revision": "a" * 64})
+        with pytest.raises(StoreError):
+            writer.write_json("closeout.json", {})
+        assert writer.path.stat().st_mode & 0o777 == 0o700
+        monkeypatch.setattr("agent.validation.store.MAX_ARTIFACTS", 1)
+        with pytest.raises(StoreError):
+            writer.write_json("another.json", {})
+    with store.open_closeout(snapshot) as writer:
+        assert writer.read_json("closeout.json")["revision"] == "a" * 64

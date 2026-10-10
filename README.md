@@ -51,3 +51,5 @@ acceptance requires real evidence and review.
 
 No project license has been selected. Bundled Spec Kit assets retain their
 [upstream notice](.specify/THIRD_PARTY_LICENSE.txt).
+
+Local readiness and immutable evidence closeout are described in the [runtime guide](docs/usage.md#local-readiness-and-closeout).
