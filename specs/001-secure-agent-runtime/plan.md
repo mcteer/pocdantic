@@ -1,6 +1,6 @@
 # Implementation Plan: Secure agent runtime
 
-Owner: mcteer. Date: 2026-10-09. Spec: [spec.md](spec.md).
+Owner: maintainer. Date: 2026-10-09. Spec: [spec.md](spec.md).
 
 ## Summary
 Deliver a reusable local/runtime baseline and live integration adapters. Keep tenant provisioning
@@ -18,7 +18,7 @@ live acceptance. Sanitized governance and specifications are versioned; customer
 are excluded from tracked deliverables.
 
 ## Project Structure
-src/pocdantic/: settings, schemas, security, oauth, vault, approval, telemetry, capabilities,
+src/agent/: settings, schemas, security, oauth, vault, approval, telemetry, capabilities,
 runtime, api and cli. config/: reusable agent profiles. tests/: deterministic boundary tests.
 scripts/: privacy/spec checks and hook installer. specs/: requirements/contracts/evidence status.
 

@@ -21,17 +21,31 @@ def identifier(value: str) -> str:
 class VerifyClient:
     """Private API responses never pass directly to agent or telemetry."""
 
-    def __init__(self, tenant: str, token: SecretStr, http: httpx.AsyncClient):
+    def __init__(
+        self, tenant: str, token: SecretStr, http: httpx.AsyncClient, *, operation_observer=None
+    ):
         parsed = urlparse(tenant)
         if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
             raise SecurityError("verify_https_required")
         self.tenant, self.token, self.http = tenant.rstrip("/"), token, http
+        self.operation_observer = operation_observer
+        self._last_response = b""
 
     async def request(
         self, method: str, path: str, *, body: dict | None = None, params: dict | None = None
     ) -> dict:
         if not re.fullmatch(r"[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*", path):
             raise SecurityError("verify_path_invalid")
+        observer = self.operation_observer
+        binding = None
+        if observer and observer.validation_id and observer.observation_id:
+            binding = observer.begin_operation(
+                validation_id=observer.validation_id,
+                observation_id=observer.observation_id,
+                phase="approval",
+                source_kind="verify",
+                source_instance=self.tenant,
+            )
         try:
             response = await self.http.request(
                 method,
@@ -45,9 +59,23 @@ class VerifyClient:
             )
             if response.status_code >= 300:
                 raise SecurityError(f"verify_http_{response.status_code}")
-            return response.json()
+            self._last_response = response.content
+            data = response.json()
+            if binding:
+                observer.finish_operation(binding, native_transaction_id=data.get("id"))
+            return data
         except (httpx.HTTPError, ValueError, TypeError):
             raise SecurityError("verify_request_failed") from None
+
+    def capture_transaction(self, approval, data, approved):
+        observer = self.operation_observer
+        if observer and observer.validation_id and observer.observation_id:
+            try:
+                observer.sink.transaction(
+                    observer, self.tenant, approval, data, self._last_response, approved
+                )
+            except Exception:
+                observer.failed = True
 
     async def authenticators(self) -> dict:
         return await self.request("GET", "v1.0/authenticators")
@@ -123,6 +151,7 @@ class VerifyClient:
                 raise SecurityError("verify_approval_binding")
             state = data.get("state")
             if state in {"SUCCESS", "VERIFY_SUCCESS"}:
+                self.capture_transaction(approval, data, True)
                 store.record_decision(
                     approval.id,
                     approved=True,
@@ -139,6 +168,7 @@ class VerifyClient:
                 "VERIFY_DENIED",
                 "EXPIRED",
             }:
+                self.capture_transaction(approval, data, False)
                 store.record_decision(
                     approval.id,
                     approved=False,

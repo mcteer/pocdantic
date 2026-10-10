@@ -24,11 +24,14 @@ class Lease(BaseModel):
 
 
 class VaultClient:
-    def __init__(self, address: str, namespace: str, http: httpx.AsyncClient):
+    def __init__(
+        self, address: str, namespace: str, http: httpx.AsyncClient, *, operation_observer=None
+    ):
         url = urlparse(address)
         if url.scheme != "https" or not url.hostname or url.username or url.password:
             raise SecurityError("vault_https_required")
         self.address, self.namespace, self.http = address.rstrip("/"), namespace, http
+        self.operation_observer = operation_observer
 
     async def request(
         self, method: str, path: str, token: SecretStr | None = None, body: dict | None = None
@@ -37,13 +40,52 @@ class VaultClient:
         headers = {"X-Vault-Namespace": self.namespace} if self.namespace else {}
         if token:
             headers["X-Vault-Token"] = token.get_secret_value()
+        observer = self.operation_observer
+        binding = None
+        phase = "cleanup" if path == "sys/leases/revoke" else "credential"
+        if observer and observer.validation_id and observer.observation_id:
+            try:
+                binding = observer.begin_operation(
+                    validation_id=observer.validation_id,
+                    observation_id=observer.observation_id,
+                    phase=phase,
+                    source_kind="vault",
+                    source_instance=self.address,
+                    expected_outcome=observer.expected_outcome
+                    if phase == "credential"
+                    else "success",
+                    native_lease_id=body.get("lease_id") if phase == "cleanup" and body else None,
+                )
+                headers["X-Correlation-Id"] = str(binding.operation_ref)
+            except Exception:
+                if phase != "cleanup":
+                    raise SecurityError("storage_error") from None
         try:
             response = await self.http.request(
                 method, f"{self.address}/v1/{path}", headers=headers, json=body
             )
             if response.status_code >= 300:
+                if observer and binding:
+                    observer.record(
+                        phase,
+                        "denied" if response.status_code in {401, 403} else "failed",
+                        operation_ref=binding.operation_ref,
+                    )
+                    observer.finish_operation(binding)
                 raise SecurityError(f"vault_http_{response.status_code}")
-            return response.json() if response.content else {}
+            data = response.json() if response.content else {}
+            if observer and binding:
+                observer.finish_operation(
+                    binding,
+                    native_request_id=data.get("request_id"),
+                    native_lease_id=data.get("lease_id"),
+                )
+                observer.record(
+                    phase,
+                    "revoked" if phase == "cleanup" else "completed",
+                    operation_ref=binding.operation_ref,
+                )
+            return data
         except (httpx.HTTPError, ValueError, TypeError):
             raise SecurityError("vault_request_failed") from None
 
@@ -68,6 +110,7 @@ class VaultClient:
         path: str,
         *,
         revoke: Callable[[str], Awaitable[None]] | None = None,
+        cleanup_timeout: float = 30,
     ):
         if not path.startswith("database/creds/"):
             raise SecurityError("vault_credential_path")
@@ -92,11 +135,24 @@ class VaultClient:
             cleanup = asyncio.create_task(
                 revoke(lease_id) if revoke else self.revoke(token, lease_id)
             )
-            try:
-                await asyncio.shield(cleanup)
-            except asyncio.CancelledError:
-                await cleanup
-                raise
+            deadline = asyncio.get_running_loop().time() + cleanup_timeout
+            interrupted = False
+            while not cleanup.done():
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    cleanup.cancel()
+                    raise SecurityError("cleanup_failed")
+                try:
+                    await asyncio.wait_for(asyncio.shield(cleanup), remaining)
+                except asyncio.CancelledError:
+                    interrupted = True
+                    # Repeated cancellation cannot cancel the separate cleanup task.
+                except TimeoutError:
+                    cleanup.cancel()
+                    raise SecurityError("cleanup_failed") from None
+            cleanup.result()
+            if interrupted:
+                raise asyncio.CancelledError
 
 
 async def read_postgres(

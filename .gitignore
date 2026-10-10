@@ -32,3 +32,11 @@ build/
 specs/**/private/
 specs/**/evidence/
 
+
+# Editor and temporary build files
+venv/
+Thumbs.db
+*.tmp
+*.swp
+.vscode/
+.idea/

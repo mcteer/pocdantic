@@ -2,9 +2,9 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
-from pocdantic.oauth import OAuthClient, OAuthConfig
-from pocdantic.security import SecurityError
-from pocdantic.vault import VaultClient
+from agent.oauth import OAuthClient, OAuthConfig
+from agent.security import SecurityError
+from agent.vault import VaultClient
 
 
 async def test_oauth_exchange_is_actor_bound_and_exact_rar():
@@ -132,7 +132,7 @@ async def test_database_connection_uses_leased_identity_and_verified_tls(monkeyp
     from unittest.mock import AsyncMock
 
     psycopg = pytest.importorskip("psycopg")
-    from pocdantic.vault import Lease, read_postgres
+    from agent.vault import Lease, read_postgres
 
     connect = AsyncMock(side_effect=psycopg.OperationalError("private server diagnostic"))
     monkeypatch.setattr(psycopg.AsyncConnection, "connect", connect)

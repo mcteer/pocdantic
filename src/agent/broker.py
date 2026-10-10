@@ -2,6 +2,7 @@ import re
 from collections.abc import Callable
 from contextlib import nullcontext
 from dataclasses import dataclass, field
+from uuid import uuid4
 
 import httpx
 from pydantic import SecretStr
@@ -33,11 +34,29 @@ class DatabaseBroker:
     subject: str = field(repr=False)
     observer: Callable[[str], None] | None = field(default=None, repr=False)
 
+    operation_observer: object = field(default=None, repr=False)
+    cleanup_timeout: float = 30
+
     http: httpx.AsyncClient | None = field(default=None, repr=False)
 
     def observe(self, stage: str) -> None:
         if self.observer:
-            self.observer(stage)
+            try:
+                self.observer(stage)
+            except Exception:
+                if self.operation_observer:
+                    self.operation_observer.failed = True
+        typed = {
+            "subject_verified": ("identity", "verified"),
+            "actor_verified": ("identity", "verified"),
+            "read_delegation_verified": ("credential", "verified"),
+            "cleanup_delegation_verified": ("cleanup", "verified"),
+            "lease_acquired": ("credential", "acquired"),
+            "database_read_completed": ("database", "completed"),
+            "lease_revoked": ("cleanup", "revoked"),
+        }
+        if self.operation_observer and stage in typed:
+            self.operation_observer.record(*typed[stage])
 
     async def __call__(self, record_id: int) -> list[dict]:
         try:
@@ -55,7 +74,7 @@ class DatabaseBroker:
         context = (
             nullcontext(self.http)
             if self.http is not None
-            else httpx.AsyncClient(timeout=15, follow_redirects=False)
+            else httpx.AsyncClient(timeout=15, follow_redirects=False, trust_env=False)
         )
         async with context as http:
             oauth = OAuthClient(oauth_config(s), http)
@@ -64,6 +83,24 @@ class DatabaseBroker:
             if principal.subject != self.subject or "database:read" not in principal.scopes:
                 raise SecurityError("database_subject_invalid")
             self.observe("subject_verified")
+            operation_observer = self.operation_observer
+
+            def begin_identity():
+                if (
+                    operation_observer
+                    and operation_observer.validation_id
+                    and operation_observer.observation_id
+                ):
+                    return operation_observer.begin_operation(
+                        validation_id=operation_observer.validation_id,
+                        observation_id=operation_observer.observation_id,
+                        phase="identity",
+                        source_kind="verify",
+                        source_instance=s.oauth_issuer or s.verify_tenant_url or "verify",
+                    )
+                return None
+
+            actor_binding = begin_identity()
             actor = await oauth.client_credentials()
             actor_claims = await JWTVerifier(
                 oauth, s.actor_audience or s.oauth_client_id, token_typ=s.oauth_access_token_typ
@@ -72,15 +109,20 @@ class DatabaseBroker:
                 "client_id" in actor_claims and actor_claims["client_id"] != s.oauth_client_id
             ):
                 raise SecurityError("database_actor_invalid")
+            if actor_binding:
+                operation_observer.finish_operation(actor_binding)
             self.observe("actor_verified")
             verifier = JWTVerifier(oauth, s.vault_audience, token_typ=s.oauth_access_token_typ)
 
             async def delegated(details):
+                exchange_binding = begin_identity()
                 exchanged = await oauth.exchange_details(
                     self.subject_token, actor.access_token, details, s.vault_audience
                 )
                 claims = await verifier.verify_claims(exchanged.access_token)
                 validate_delegation(claims, self.subject, actor_claims, details)
+                if exchange_binding:
+                    operation_observer.finish_operation(exchange_binding)
                 return exchanged.access_token
 
             read_details = [
@@ -92,7 +134,9 @@ class DatabaseBroker:
             ]
             read_token = await delegated(read_details)
             self.observe("read_delegation_verified")
-            vault = VaultClient(s.vault_addr, s.vault_namespace, http)
+            vault = VaultClient(
+                s.vault_addr, s.vault_namespace, http, operation_observer=self.operation_observer
+            )
 
             async def revoke(lease_id):
                 prefix = s.vault_read_path + "/"
@@ -114,8 +158,12 @@ class DatabaseBroker:
                 await vault.revoke(cleanup_token, lease_id)
                 self.observe("lease_revoked")
 
-            async with vault.credentials(read_token, s.vault_read_path, revoke=revoke) as lease:
+            async with vault.credentials(
+                read_token, s.vault_read_path, revoke=revoke, cleanup_timeout=self.cleanup_timeout
+            ) as lease:
                 self.observe("lease_acquired")
+                if operation_observer:
+                    operation_observer.record("database", "attempted", operation_ref=uuid4())
                 rows = await read_postgres(
                     lease,
                     host=s.database_host,

@@ -4,13 +4,13 @@ from pydantic import SecretStr
 from pydantic_ai.models.test import TestModel
 
 pytest.importorskip("fastapi")
-from pocdantic.api import create_app
-from pocdantic.security import SecurityError
-from pocdantic.settings import Settings
+from agent.api import create_app
+from agent.security import SecurityError
+from agent.settings import Settings
 
 
 async def test_invalid_or_missing_auth_rejected_before_runtime(monkeypatch):
-    monkeypatch.setattr("pocdantic.api.selected_model", lambda _: TestModel())
+    monkeypatch.setattr("agent.api.selected_model", lambda _: TestModel())
     settings = Settings(
         _env_file=None,
         oauth_audience="poc-api",
@@ -28,8 +28,8 @@ async def test_invalid_or_missing_auth_rejected_before_runtime(monkeypatch):
         called.append(True)
         raise AssertionError("model invoked without valid identity")
 
-    monkeypatch.setattr("pocdantic.api.JWTVerifier.verify", reject)
-    monkeypatch.setattr("pocdantic.api.Runtime.run", model_must_not_run)
+    monkeypatch.setattr("agent.api.JWTVerifier.verify", reject)
+    monkeypatch.setattr("agent.api.Runtime.run", model_must_not_run)
     async with (
         app.router.lifespan_context(app),
         httpx.AsyncClient(

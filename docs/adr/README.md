@@ -1,13 +1,14 @@
 # Architecture decision records
 
 ADRs record significant decisions, alternatives and consequences using sanitized
-requirements. Owner: mcteer.
+requirements. Owner: maintainer.
 
 | Record | Decision |
 | --- | --- |
 | [0001](0001-slim-capability-runtime.md) | Slim dependencies and native capabilities |
 | [0002](0002-trusted-identity-and-effects.md) | Trusted identity, authorization and effects |
 | [0003](0003-versioned-governance-and-evidence.md) | Versioned governance and separate live acceptance |
+| [0004](0004-validation-evidence.md) | Bounded validation, private native evidence and digest-bound reviews |
 
 Use the next sequential number for a new record. Include status, date, context,
 decision, alternatives and consequences. Accepted decisions remain historical:

@@ -1,12 +1,17 @@
 from typing import Literal
 
-from pydantic import AliasChoices, Field, SecretStr, field_validator
+from pydantic import AliasChoices, AliasGenerator, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env.local", extra="ignore", env_prefix="POCDANTIC_", populate_by_name=True
+        env_file=".env.local",
+        extra="ignore",
+        populate_by_name=True,
+        alias_generator=AliasGenerator(
+            validation_alias=lambda name: AliasChoices(name.upper(), "POCDANTIC_" + name.upper())
+        ),
     )
     model: str = "google-gla:gemini-3.8-flash"
     timeout_seconds: float = Field(default=45, gt=0, le=300)
@@ -27,14 +32,20 @@ class Settings(BaseSettings):
     oauth_client_id: str | None = Field(
         default=None,
         validation_alias=AliasChoices(
-            "POCDANTIC_OAUTH_CLIENT_ID", "VERIFY_AGENT_CLIENT_ID", "VERIFY_CLIENT_ID"
+            "OAUTH_CLIENT_ID",
+            "POCDANTIC_OAUTH_CLIENT_ID",
+            "VERIFY_AGENT_CLIENT_ID",
+            "VERIFY_CLIENT_ID",
         ),
         repr=False,
     )
     oauth_client_secret: SecretStr | None = Field(
         default=None,
         validation_alias=AliasChoices(
-            "POCDANTIC_OAUTH_CLIENT_SECRET", "VERIFY_AGENT_CLIENT_SECRET", "VERIFY_CLIENT_SECRET"
+            "OAUTH_CLIENT_SECRET",
+            "POCDANTIC_OAUTH_CLIENT_SECRET",
+            "VERIFY_AGENT_CLIENT_SECRET",
+            "VERIFY_CLIENT_SECRET",
         ),
         repr=False,
     )
@@ -44,12 +55,16 @@ class Settings(BaseSettings):
     )
     verify_api_client_id: str | None = Field(
         default=None,
-        validation_alias=AliasChoices("POCDANTIC_VERIFY_API_CLIENT_ID", "VERIFY_CLIENT_ID"),
+        validation_alias=AliasChoices(
+            "VERIFY_API_CLIENT_ID", "POCDANTIC_VERIFY_API_CLIENT_ID", "VERIFY_CLIENT_ID"
+        ),
         repr=False,
     )
     verify_api_client_secret: SecretStr | None = Field(
         default=None,
-        validation_alias=AliasChoices("POCDANTIC_VERIFY_API_CLIENT_SECRET", "VERIFY_CLIENT_SECRET"),
+        validation_alias=AliasChoices(
+            "VERIFY_API_CLIENT_SECRET", "POCDANTIC_VERIFY_API_CLIENT_SECRET", "VERIFY_CLIENT_SECRET"
+        ),
         repr=False,
     )
     verify_push_enabled: bool = False
@@ -59,6 +74,18 @@ class Settings(BaseSettings):
     logfire_token: SecretStr | None = Field(
         default=None, validation_alias="LOGFIRE_TOKEN", repr=False
     )
+    logfire_base_url: str | None = Field(default=None, repr=False)
+    logfire_project: str | None = Field(default=None, min_length=1, max_length=128, repr=False)
+
+    @field_validator("logfire_base_url")
+    @classmethod
+    def logfire_endpoint(cls, value):
+        if value:
+            from .telemetry import validate_base_url
+
+            return validate_base_url(value)
+        return None
+
     vault_addr: str | None = Field(default=None, validation_alias="VAULT_ADDR", repr=False)
     vault_namespace: str = Field(default="", validation_alias="VAULT_NAMESPACE", repr=False)
     vault_token: SecretStr | None = Field(default=None, validation_alias="VAULT_TOKEN", repr=False)

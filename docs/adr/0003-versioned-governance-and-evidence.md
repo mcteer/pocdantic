@@ -1,6 +1,6 @@
 # ADR 0003: Versioned governance and separate live acceptance
 
-Status: Accepted. Date: 2026-10-09. Owner: mcteer.
+Status: Accepted. Date: 2026-10-09. Owner: maintainer.
 
 ## Context
 

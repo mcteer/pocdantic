@@ -7,7 +7,6 @@ name = "PoCdantic"
 version = "0.1.0"
 description = "Reusable identity-aware Pydantic AI PoC runtime"
 readme = "README.md"
-authors = [{name = "mcteer"}]
 requires-python = ">=3.12"
 dependencies = ["pydantic-ai-slim==2.55.0", "pydantic-settings>=2.15,<3", "httpx>=0.28,<1", "pyjwt[crypto]>=2.15,<3"]
 
@@ -27,15 +26,17 @@ postgres = ["psycopg[binary]>=3.2,<4"]
 dev = ["pytest>=9.1,<10", "pytest-asyncio>=1.4,<2", "ruff>=0.17,<1"]
 
 [project.scripts]
-pocdantic = "pocdantic.cli:main"
+agent = "agent.cli:main"
+pocdantic = "agent.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/pocdantic"]
+packages = ["src/agent"]
 [tool.hatch.build.targets.wheel.force-include]
-"config/agents.json" = "pocdantic/default_agents.json"
+"config/agents.json" = "agent/default_agents.json"
+"config/validation-suites.json" = "agent/validation/default_suites.json"
 
 [tool.hatch.build.targets.sdist]
-include = ["src/pocdantic", "config", "compose.yaml", "scripts/local_lab.py", "scripts/provision_database.py", "README.md", "CONTRIBUTING.md", "pyproject.toml", "uv.lock"]
+include = ["src/agent", "config", "compose.yaml", "scripts/local_lab.py", "scripts/provision_database.py", "README.md", "CONTRIBUTING.md", "pyproject.toml", "uv.lock"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -3,7 +3,7 @@
 **Feature Branch**: `main`
 **Created**: 2026-10-09
 **Status**: Implementable local baseline; vendor acceptance pending
-**Owner**: mcteer
+**Owner**: maintainer
 **Input**: Build a configurable customer PoC template with constrained agents and evidence gates.
 
 ## User Scenarios & Testing

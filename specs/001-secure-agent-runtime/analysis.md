@@ -1,6 +1,6 @@
 # Delegated identity consistency review
 
-Owner: mcteer. Date: 2026-10-09.
+Owner: maintainer. Date: 2026-10-09.
 
 FR-002/006 map to T026/T027; FR-007/008 to T027/T028; negative validation to T029;
 full source-system acceptance to T030 and T022.
