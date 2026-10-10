@@ -1,9 +1,29 @@
 """Real WebKit keeps incident detail within its owning browser session."""
 
+import time
+
 from playwright.sync_api import expect
 from response_support import signal
 
 from agent.response.coordinator import Coordinator
+from agent.response.models import ResponseError
+
+
+def local_control(operation):
+    """Retry only short-lock contention from concurrent browser status requests.
+
+    Navigating away stops new polling but cannot drain a request already executing
+    on the server thread. Keep production locks nonblocking and preserve every
+    non-busy error, including stale revisions and unsafe release.
+    """
+    deadline = time.monotonic() + 2
+    while True:
+        try:
+            return operation()
+        except ResponseError as error:
+            if str(error) != "response_busy" or time.monotonic() >= deadline:
+                raise
+            time.sleep(0.01)
 
 
 def completed(page, origin):
@@ -22,10 +42,11 @@ def test_root_hold_details_and_unrelated_admission(workspace_browser):
     page, origin, app, provider = workspace_browser
     completed(page, origin)
     store = app.state.response
-    run = store.read().runs[0]
+    run = local_control(store.read).runs[0]
     coordinator = Coordinator(store)
-    item, _ = coordinator.submit(signal(store.settings, root=run.root_run_id))
-    assert coordinator.reconcile(item.incident_id).phase == "settled"
+    event = signal(store.settings, root=run.root_run_id)
+    item, _ = local_control(lambda: coordinator.submit(event))
+    assert local_control(lambda: coordinator.reconcile(item.incident_id)).phase == "settled"
     page.reload()
     expect(page.locator("#containment-status")).to_contain_text("Work stopped")
     expect(page.locator("#containment-status")).to_contain_text("confirmed")
@@ -58,16 +79,19 @@ def test_definition_hold_release_and_fresh_generation(workspace_browser):
     completed(page, origin)
     store = app.state.response
     coordinator = Coordinator(store)
-    item, _ = coordinator.submit(signal(store.settings))
-    assert coordinator.reconcile(item.incident_id).phase == "settled"
+    event = signal(store.settings)
+    item, _ = local_control(lambda: coordinator.submit(event))
+    assert local_control(lambda: coordinator.reconcile(item.incident_id)).phase == "settled"
     page.reload()
     expect(page.get_by_role("button", name="Run", exact=True)).to_be_disabled()
     page.goto("about:blank")
-    coordinator.release(
-        store.settings.workload_definition,
-        [item.incident_id],
-        store.read().revision,
-        "test-operator",
+    local_control(
+        lambda: coordinator.release(
+            store.settings.workload_definition,
+            [item.incident_id],
+            store.read().revision,
+            "test-operator",
+        )
     )
     page.goto(origin)
     expect(page.get_by_role("button", name="Run", exact=True)).to_be_enabled()
@@ -77,4 +101,5 @@ def test_definition_hold_release_and_fresh_generation(workspace_browser):
     expect(page.locator("#history li")).to_have_count(2)
     expect(page.locator("#status")).to_have_text("Completed")
     expect(page.locator("#containment-status")).to_have_text("")
-    assert store.read().runs[-1].generation > store.read().runs[0].generation
+    state = local_control(store.read)
+    assert state.runs[-1].generation > state.runs[0].generation

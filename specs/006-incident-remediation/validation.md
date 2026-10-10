@@ -94,3 +94,10 @@ Final local results:
 
 The final staged-tree check follows this evidence update. Native acceptance and
 maintainer/branch-protection requirements above remain separate from these local passes.
+
+
+PR CI follow-up: the push run passed all gates; the initial pull-request run found
+short control-lock contention in the WebKit release fixture (558 pass, one failure).
+The fixture now retries only the documented `response_busy` result for up to two
+seconds; navigation does not drain a server request already in flight. Production
+locking and stale/unsafe-release assertions remain unchanged. CI is rerun on the fix.
