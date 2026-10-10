@@ -1,4 +1,8 @@
-"""Versioned native parsers. Imports never fetch URLs or extract archives."""
+"""Private source import, normalization, and integrity checks.
+
+Original bytes are retained and digest-bound to normalized records. Source parsing
+supports only declared formats; import success is not acceptance or operator review.
+"""
 
 import hashlib
 from datetime import UTC, datetime
@@ -12,6 +16,7 @@ from .store import MAX_ARTIFACT, MAX_EVENTS, StoreError, decode_json, read_priva
 
 
 def timestamp(value, *, milliseconds=False):
+    """Parse a timezone-aware source timestamp, including Verify millisecond values."""
     try:
         if isinstance(value, str):
             parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -26,6 +31,9 @@ def timestamp(value, *, milliseconds=False):
 
 
 def vault_record(row, manifest):
+    """Normalize supported Vault request/response records and detect conflicting lease
+    fields.
+    """
     if row.get("type") not in {"request", "response"}:
         raise StoreError("source_unsupported")
     request = row.get("request")
@@ -85,6 +93,9 @@ def vault_record(row, manifest):
 
 
 def verify_record(row, manifest):
+    """Normalize a Verify audit event; generic events alone do not prove an exact phone
+    decision.
+    """
     return NormalizedSourceEvent(
         source_event_id=row["id"],
         source_kind="verify",
@@ -97,6 +108,9 @@ def verify_record(row, manifest):
 
 
 def logfire_record(row, manifest):
+    """Normalize a Logfire span and its correlation metadata under the declared format
+    version.
+    """
     if manifest.format_version == 1:
         project = row.get("project_id") or row.get("project_name") or row.get("project")
         if project is not None and project != manifest.source_instance:
@@ -131,6 +145,7 @@ def logfire_record(row, manifest):
 
 
 def validate_columns(columns, rows, type_key):
+    """Reject missing or unexpected columns for a supported tabular source format."""
     if not isinstance(columns, list) or not columns or not isinstance(rows, list):
         raise StoreError("schema_invalid")
     names = []
@@ -152,6 +167,10 @@ def validate_columns(columns, rows, type_key):
 
 
 def normalize(raw, manifest):
+    """Parse bounded source records and deduplicate identical native records.
+
+    Conflicting records remain detectable rather than being silently overwritten.
+    """
     if len(raw) > MAX_ARTIFACT:
         raise StoreError("limits_exceeded")
     try:
@@ -198,6 +217,7 @@ def normalize(raw, manifest):
 
 
 def load_artifacts(writer):
+    """Reload imported artifacts and verify raw digests and reproduced normalization."""
     artifacts = []
     for path in sorted(writer.path.glob("artifact-*.json")):
         artifact = SourceArtifact.model_validate(writer.read_json(path.name))
@@ -220,6 +240,11 @@ def load_artifacts(writer):
 
 
 def import_source(writer, source, input_path, manifest):
+    """Store source bytes and their manifest-bound normalization as an immutable private
+    artifact.
+
+    Validate format and quota before publication inside the locked run directory.
+    """
     if not isinstance(manifest, ImportManifest):
         manifest = ImportManifest.model_validate(manifest)
     if source != manifest.source_kind:
@@ -252,6 +277,9 @@ def import_source(writer, source, input_path, manifest):
 
 
 def load_transactions(writer):
+    """Verify private phone evidence against its raw bytes, approval digest, and operation
+    binding.
+    """
     from .models import TransactionEvidence
 
     values = []

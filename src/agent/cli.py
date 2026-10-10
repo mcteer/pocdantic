@@ -1,3 +1,9 @@
+"""Command-line entry points for synthetic demos, authenticated runs, and validation.
+
+Live commands load local settings; the demo uses a deterministic model. Error
+output uses safe codes rather than provider responses or credentials.
+"""
+
 import argparse
 import asyncio
 import json
@@ -17,6 +23,10 @@ from .telemetry import configure_telemetry
 
 
 def selected_model(settings: Settings):
+    """Resolve the configured model, injecting the Google key only into its provider.
+
+    Other provider names are passed to Pydantic AI for resolution.
+    """
     if settings.model.startswith("google-gla:") and settings.google_api_key:
         from pydantic_ai.models.google import GoogleModel
         from pydantic_ai.providers.google import GoogleProvider
@@ -29,6 +39,10 @@ def selected_model(settings: Settings):
 
 
 async def authenticated_principal(settings: Settings) -> Principal:
+    """Verify the configured human bearer token for the required resource audience.
+
+    Missing configuration or rejected credentials raise SecurityError before a run.
+    """
     if not settings.bearer_token or not settings.oauth_audience:
         raise SecurityError("verified_bearer_and_audience_required")
     async with httpx.AsyncClient(timeout=15, follow_redirects=False) as http:
@@ -41,6 +55,11 @@ async def authenticated_principal(settings: Settings) -> Principal:
 
 
 async def execute(args) -> int:
+    """Dispatch asynchronous CLI commands and return a process exit code.
+
+    Runs and batches authenticate before creating trusted adapters. Live probe and
+    push-demo commands can issue tokens or phone prompts; demo stays synthetic.
+    """
     if args.command == "validate":
         from .validation.commands import execute_validation
 
@@ -112,6 +131,11 @@ async def execute(args) -> int:
 
 
 def main() -> None:
+    """Parse arguments, start the loopback servers or dispatch a CLI command.
+
+    Workspace startup reserves the listening socket before constructing the app.
+    Failures print bounded error codes and exit without exposing exception details.
+    """
     parser = argparse.ArgumentParser(description="Reusable secure agent PoC runtime")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("demo", help="Offline synthetic delegation; no network calls")

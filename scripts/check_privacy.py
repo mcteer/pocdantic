@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Reject private paths and local credential values in index or tracked history."""
+"""Reject private paths and credential values from the Git index and optional history.
+
+The publication allowlist is separate from credential scanning. Local configuration
+is read only to detect accidental publication; its values are never printed.
+"""
 
 import argparse
 import re
@@ -11,10 +15,14 @@ from publish_policy import generated_private, publishable
 
 
 def git(*args, check=True):
+    """Run a Git query with captured output so source bytes are scanned rather than
+    printed.
+    """
     return subprocess.run(["git", *args], check=check, capture_output=True).stdout
 
 
 def forbidden(name):
+    """Identify private working paths and generated evidence that must never be published."""
     p = PurePosixPath(name)
     return (
         generated_private(name)
@@ -29,6 +37,10 @@ def forbidden(name):
 
 
 def credential_values():
+    """Collect private local values and decoded database URI components for byte matching.
+
+    Return byte strings to the scanner without logging them or reading provider state.
+    """
     file = Path(".env.local")
     if not file.exists():
         return []
@@ -69,6 +81,9 @@ def credential_values():
 
 
 def main():
+    """Scan indexed blobs and optionally every reachable revision against path and
+    credential rules.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("--history", action="store_true")
     args = parser.parse_args()

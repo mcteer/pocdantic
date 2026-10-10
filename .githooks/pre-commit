@@ -1,3 +1,4 @@
 #!/bin/sh
+# Check staged blobs, including files whose worktree copy was cleaned up afterward.
 set -eu
 python3 scripts/check_privacy.py

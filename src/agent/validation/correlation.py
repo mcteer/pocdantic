@@ -1,4 +1,9 @@
-"""Exact native linkage. Timestamps and caller-asserted run labels are insufficient."""
+"""Correlate imported source events with private operation bindings.
+
+Native identifiers or recorded operation references supply linkage; timestamps are
+secondary checks. Unsupported source formats and ambiguous records stay blocked.
+This evidence projection does not itself authorize new effects or recovery retries.
+"""
 
 from datetime import timedelta
 from uuid import uuid5
@@ -16,6 +21,12 @@ REASONS = {
 
 
 def correlate(binding, artifacts, *, expected_outcome=None):
+    """Match one operation against source records and check expected outcome and native
+    linkage.
+
+    Contradictions fail, missing or unsupported evidence blocks, and matching records
+    produce a correlation result referring to immutable artifact IDs.
+    """
     expected_outcome = expected_outcome or binding.expected_outcome
     method = {
         "vault": "vault-request-v1",
@@ -24,6 +35,9 @@ def correlate(binding, artifacts, *, expected_outcome=None):
     }[binding.source_kind]
 
     def result(status, refs=()):
+        """Build a bounded result for this binding without exposing its native private
+        fields.
+        """
         return CorrelationResult(
             correlation_id=uuid5(
                 binding.operation_ref,

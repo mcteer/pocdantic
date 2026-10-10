@@ -1,3 +1,9 @@
+"""Bounded agent execution with trusted identity, policy, containment, and audit.
+
+Profiles select tools and delegation roles. Runtime dependencies carry authority
+outside the model; cancellation invalidates approval state before a run is forgotten.
+"""
+
 import asyncio
 import json
 import time
@@ -21,6 +27,11 @@ from .telemetry import Telemetry, safe_instrumentation
 
 
 def load_definitions(path: str) -> dict[str, AgentDefinition]:
+    """Load strict profile definitions from the repository or packaged defaults.
+
+    Reject unknown capabilities, duplicate profiles, or a child role broader than
+    the supported read-only delegation contract.
+    """
     from .validation.context import profile_bytes
 
     content = profile_bytes(path).decode("utf-8")
@@ -46,6 +57,7 @@ def load_definitions(path: str) -> dict[str, AgentDefinition]:
 def build_agent(
     definition: AgentDefinition, model: str | Model, telemetry=None
 ) -> Agent[Dependencies, AgentOutput]:
+    """Construct a profile’s Pydantic AI agent with fixed tools, output schema, and limits."""
     return Agent(
         model,
         deps_type=Dependencies,
@@ -83,6 +95,11 @@ class Runtime:
         validation_id=None,
         observation_id=None,
     ):
+        """Build agents and process-local policy, audit, approval, and containment state.
+
+        Inject trusted adapters and an optional private event sink without giving them
+        to model prompts or public output.
+        """
         self.settings = settings
         self.telemetry = telemetry or Telemetry()
         self.event_sink = event_sink or NullSink()
@@ -103,11 +120,14 @@ class Runtime:
         self._reserved: dict[UUID, RunContext] = {}
 
     def reserve(self, request_id: UUID) -> RunContext:
+        """Allocate a run ID before asynchronous admission, binding it to the request ID."""
         context = RunContext(request_id, uuid4())
+        # Reserve before any await so workspace admission and cancellation share one run ID.
         self._reserved[context.run_id] = context
         return context
 
     def forget(self, run_id: UUID) -> None:
+        """Remove a finished run’s reservations and approval state; reject an active run."""
         if run_id in self._active:
             raise SecurityError("run_active")
         self._reserved.pop(run_id, None)
@@ -121,12 +141,16 @@ class Runtime:
             self._active[run_id][1].cancel()
 
     def contain_definition(self, definition: str) -> None:
+        """Block a profile or workload and cancel its matching active runs."""
         self.containment.block_definition(definition)
         for profile, task in list(self._active.values()):
             if profile == definition or definition == self.settings.workload_definition:
                 task.cancel()
 
     async def run(self, request, principal, **kwargs):
+        """Execute a task inside a fresh metadata-only root trace and return a safe
+        AgentResponse.
+        """
         tracer = self.telemetry.provider.get_tracer("agent")
         attributes = {"request_id": str(request.request_id)}
         if self.validation_id:
@@ -150,6 +174,12 @@ class Runtime:
         run_context: RunContext | None = None,
         _action=None,
     ) -> AgentResponse:
+        """Enforce identity, containment, usage, and time bounds around one reserved run.
+
+        A trusted retry action bypasses model planning but retains policy and approval
+        checks. Terminal paths invalidate outstanding approvals and release active
+        state.
+        """
         if run_context is not None:
             if (
                 self._reserved.get(run_context.run_id) is not run_context

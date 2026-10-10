@@ -1,3 +1,4 @@
+/* Shared palette and layout for the local workspace; no external assets are loaded. */
 :root {
   color-scheme:light;
   --ink:#183128;
@@ -56,6 +57,7 @@ select {
   min-width:180px}
 section {
   margin-top:24px}
+/* Long model output stays readable on narrow screens without being interpreted as HTML. */
 pre {
   white-space:pre-wrap;
   overflow-wrap:anywhere;
@@ -72,9 +74,11 @@ pre {
   color:var(--muted);
   font-size:14px;
   overflow-wrap:anywhere}
+/* Keep keyboard focus visible, including history buttons reused during polling. */
 :focus-visible {
   outline:3px solid #b46a00;
   outline-offset:4px}
+/* Author styles must not reveal signed-out sections or unavailable retry controls. */
 [hidden] {
   display:none!important}
 #history button {

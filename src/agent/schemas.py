@@ -1,3 +1,10 @@
+"""Strict public and runtime boundary models.
+
+Principal is derived from verified credentials. RequestEnvelope selects a task and
+profile but grants no authority. Action captures the exact effect being approved;
+AgentResponse and results expose bounded data without provider credentials.
+"""
+
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 

@@ -1,3 +1,9 @@
+"""Typed local configuration with short environment names and legacy aliases.
+
+Defaults support synthetic execution. Live credentials use SecretStr and remain
+out of representations; URL normalization does not replace adapter trust checks.
+"""
+
 from typing import Literal
 
 from pydantic import AliasChoices, AliasGenerator, Field, SecretStr, field_validator
@@ -56,6 +62,9 @@ class Settings(BaseSettings):
     @field_validator("login_scopes")
     @classmethod
     def scopes(cls, value):
+        """Require a bounded, unique login-scope list containing openid, then normalize
+        spaces.
+        """
         parts = value.split()
         if (
             any(ord(c) < 32 and c != " " for c in value)
@@ -98,6 +107,7 @@ class Settings(BaseSettings):
     @field_validator("logfire_base_url")
     @classmethod
     def logfire_endpoint(cls, value):
+        """Validate an optional telemetry URL before it can become an export destination."""
         if value:
             from .telemetry import validate_base_url
 
@@ -122,6 +132,7 @@ class Settings(BaseSettings):
     @field_validator("verify_tenant_url", "vault_addr", mode="before")
     @classmethod
     def normalize_url(cls, value):
+        """Normalize provider base URLs to HTTPS and remove trailing slashes."""
         if value and not str(value).startswith("https://"):
             value = "https://" + str(value)
         return value.rstrip("/") if value else None

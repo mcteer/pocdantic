@@ -1,3 +1,9 @@
+"""Bearer-authenticated HTTP entry point for programmatic callers.
+
+Unlike the browser workspace, this API accepts a token on each request. Identity is
+verified before the runtime receives a task; provider credentials stay in adapters.
+"""
+
 from contextlib import asynccontextmanager
 from typing import Annotated
 
@@ -19,6 +25,10 @@ from .telemetry import configure_telemetry
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
+    """Build the optional FastAPI service, rejecting missing audience configuration.
+
+    The returned app owns one runtime and a lifespan-managed token verifier.
+    """
     config = settings or Settings()
     if not config.oauth_audience:
         raise SecurityError("oauth_audience_missing")
@@ -33,6 +43,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app):
+        """Keep the HTTP client and JWT verifier alive only while the service is running."""
         async with httpx.AsyncClient(timeout=15, follow_redirects=False) as http:
             app.state.verifier = JWTVerifier(
                 OAuthClient(oauth_settings, http),
@@ -45,6 +56,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/health")
     async def health():
+        """Report process availability; this does not check remote providers."""
         return {"status": "ok"}
 
     @app.post("/runs", response_model=AgentResponse)
@@ -52,6 +64,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: RequestEnvelope,
         credentials: Annotated[HTTPAuthorizationCredentials, Depends(bearer)],
     ):
+        """Verify the supplied bearer token and execute a task with its human identity.
+
+        Invalid identity becomes a generic 401. Database access uses the same token in
+        a trusted broker, never a model-supplied credential.
+        """
         try:
             principal = await app.state.verifier.verify(SecretStr(credentials.credentials))
         except SecurityError:

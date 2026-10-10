@@ -1,4 +1,9 @@
+/* Local workspace UI: credentials stay on the server behind an HttpOnly cookie.
+ * Session/CSRF state and uncertain submissions live only in this page's memory.
+ * Requests never automatically replay effects; polling only reads public job views.
+ */
 'use strict';
+// Resolve fixed element IDs; provider/task text is rendered with textContent below.
 const $ = id => document.getElementById(id);
 const terminal = new Set(['completed', 'denied', 'failed', 'interrupted']);
 const messages = {
@@ -31,6 +36,7 @@ const messages = {
 let session = null, latestJobs = [], currentId = null, pending = null, pendingRetry = null;
 let posting = false, knownBusy = false, lastPoll = 0, polling = false;
 
+/** Show a closed error message and move keyboard focus to its accessible container. */
 function showError(error) {
   $('error').textContent = messages[error?.code] ||
     'Connection failed. Check the existing submission before starting another task.';
@@ -38,6 +44,9 @@ function showError(error) {
   $('error').focus();
 }
 
+/** Call the same-origin API without caching; a body selects a CSRF-protected POST.
+ * Throw the server's safe error projection, keeping transport failures distinguishable
+ * from an explicit rejection. A 204 response has no JSON body. */
 async function api(path, body) {
   const options = {credentials: 'same-origin', cache: 'no-store'};
   if (body) {
@@ -51,6 +60,8 @@ async function api(path, body) {
   return data;
 }
 
+/** Load the server-held session projection and bootstrap CSRF state before enabling login.
+ * Render configuration names and profile options as text, never provider credentials. */
 async function loadSession() {
   session = await api('/workspace/session');
   $('login').disabled = false;
@@ -69,6 +80,8 @@ async function loadSession() {
   if (session.login_error) showError(session.login_error);
 }
 
+/** Disable conflicting operations and freeze the exact payload of an uncertain submission.
+ * "Check submission" resends the same UUID/body for server-side deduplication. */
 function controls(busy) {
   $('run').disabled = posting || busy;
   $('task').disabled = posting || !!pending;
@@ -77,6 +90,8 @@ function controls(busy) {
   $('run').textContent = pending ? 'Check submission' : 'Run';
 }
 
+/** Display one public job view using textContent so task/model output cannot inject HTML.
+ * Retry availability is decided by trusted server checks, not inferred from UI labels. */
 function render(job) {
   currentId = job.job_id;
   const labels = {
@@ -96,6 +111,8 @@ function render(job) {
   if (job.error) $('error').textContent = messages[job.error.code] || messages.task_failed;
 }
 
+/** Update history in place, reusing buttons to preserve keyboard focus during polling.
+ * Click handlers resolve the latest job view rather than retaining an old response. */
 function history(jobs) {
   const existing = new Map([...$('history').children].map(li => [li.dataset.jobId, li]));
   let previous = null;
@@ -118,6 +135,8 @@ function history(jobs) {
   }
 }
 
+/** Read session-owned jobs at most once per second with no overlapping requests.
+ * Refresh the session projection after expiry; do not submit or retry effects here. */
 async function poll() {
   if (!session?.signed_in || polling || Date.now() - lastPoll < 1000) return;
   lastPoll = Date.now();
@@ -137,12 +156,14 @@ async function poll() {
   }
 }
 
+/** Schedule the next read after the previous poll settles, including when signed out. */
 async function pollLoop() {
   await poll();
   const delay = session?.signed_in ? Math.max(1, 1000 - (Date.now() - lastPoll)) : 1000;
   setTimeout(pollLoop, delay);
 }
 
+// Start a bound login attempt, then navigate to its trusted authorization URL.
 $('login').addEventListener('click', async () => {
   $('login').disabled = true;
   try {
@@ -154,6 +175,7 @@ $('login').addEventListener('click', async () => {
   }
 });
 
+// Clear page-held tasks/results only after the server has accepted session closure.
 $('logout').addEventListener('click', async () => {
   try {
     await api('/auth/logout', {schema_version: 1});
@@ -169,6 +191,8 @@ $('logout').addEventListener('click', async () => {
   } catch (error) { showError(error); }
 });
 
+// Allocate one submission UUID and retain its exact body while delivery is uncertain.
+// An explicit server rejection releases it; a network failure requires a manual check.
 $('task-form').addEventListener('submit', async event => {
   event.preventDefault();
   if (posting) return;
@@ -196,6 +220,8 @@ $('task-form').addEventListener('submit', async event => {
   }
 });
 
+// Approval retry has its own UUID and bound parent. The server rechecks the exact
+// action and identity; this request does not replay the original model/task execution.
 $('retry').addEventListener('click', async () => {
   if (posting || !currentId) return;
   if (!pendingRetry) pendingRetry = {
@@ -220,5 +246,6 @@ $('retry').addEventListener('click', async () => {
   }
 });
 
+// Bootstrap identity/CSRF before the first job read; the recurring loop remains read-only.
 loadSession().then(poll).catch(showError);
 pollLoop();

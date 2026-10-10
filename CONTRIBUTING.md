@@ -83,6 +83,39 @@ The constitution requires:
 
 ## Implementation conventions
 
+### Finding your way through the code
+
+Start with [the offline demo](src/agent/demo.py) and run `uv run agent demo` to
+see a task delegate a ticket read without credentials or network access. Then follow
+these paths; module and function docstrings explain the local contracts.
+
+| Question | Start here |
+| --- | --- |
+| How does a task become a bounded agent run? | [CLI](src/agent/cli.py) → [runtime](src/agent/runtime.py) → [capabilities](src/agent/capabilities.py) |
+| What grants permission to a tool? | [Verified identity](src/agent/oauth.py), [policy](src/agent/security.py), and [single-use approval](src/agent/approval.py) |
+| How does browser sign-in work? | [Workspace routes](src/agent/workspace/app.py) → [login verification](src/agent/workspace/auth.py) → [sessions](src/agent/workspace/sessions.py) |
+| What happens during sign-out or an uncertain submission? | [Job manager](src/agent/workspace/runs.py), [HTTP boundary](src/agent/workspace/security.py), and [browser code](src/agent/workspace/static/app.js) |
+| Where do database passwords come from, and who cleans them up? | [Delegation broker](src/agent/broker.py) → [Vault lease lifecycle](src/agent/vault.py) |
+| How are software checks separated from live proof? | [Scenario runner](src/agent/validation/runner.py), [reports](src/agent/validation/report.py), and [closeout](src/agent/validation/closeout.py) |
+| What can leave the process in telemetry or evidence? | [Telemetry filter](src/agent/telemetry.py), [observers](src/agent/observability.py), and [private storage](src/agent/validation/store.py) |
+
+A **principal** is identity derived from a verified token, including its scopes
+(granted permissions). A **capability** is a tool made available to a profile; policy
+still checks permission at execution. A **lease** is a provider handle for temporary
+credentials that must be cleaned up. **Containment** blocks and cancels local work;
+it does not by itself revoke a provider's credentials. An acknowledged provider request
+is different from independently observed completion.
+
+When changing code, document purpose, meaningful inputs/outputs, side effects, and
+failure behavior. Explain why security checks or cleanup must happen in a particular
+order. Avoid narrating obvious statements. Registered tool docstrings are also sent
+to the model, so editing them changes the model's tool instructions. Document their
+implementation with surrounding comments when that contract should stay stable.
+
+Validation revisions hash implementation bytes, including comments. A documentation
+change can therefore make old private evidence stale; do not rewrite that evidence
+to make it appear current.
+
 Use typed Python, Pydantic boundary models, reviewed capabilities and provider-independent
 adapters. Keep tenant settings configurable. Use fixed parameterized SQL and least-privilege
 database grants. Return safe error codes; upstream errors can contain secrets.

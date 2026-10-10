@@ -1,4 +1,9 @@
-"""Trusted typed sinks; failures never alter authorization or skip finally blocks."""
+"""Typed lifecycle events and private native-operation bindings.
+
+Public events contain closed metadata, while private bindings connect operations to
+source evidence. Observer health is shared across parent/child runs. Storage failures
+are surfaced without bypassing authorization or preventing cleanup finally blocks.
+"""
 
 from collections.abc import Callable
 from contextlib import nullcontext
@@ -10,29 +15,44 @@ from .validation.models import LifecycleEvent, PrivateOperationBinding
 
 
 class EventSink(Protocol):
-    def emit(self, event: LifecycleEvent) -> None: ...
+    def emit(self, event: LifecycleEvent) -> None:
+        """Accept one bounded lifecycle event without receiving task or credential
+        payloads.
+        """
+        ...
 
 
 class PrivateOperationSink(Protocol):
-    def bind(self, binding: PrivateOperationBinding) -> None: ...
+    def bind(self, binding: PrivateOperationBinding) -> None:
+        """Persist private operation metadata used to correlate native source evidence."""
+        ...
 
 
 class NullSink:
     def emit(self, event):
+        """Discard lifecycle events when no evidence sink has been configured."""
         pass
 
     def bind(self, binding):
+        """Discard private bindings when no evidence sink has been configured."""
         pass
 
 
 class StoreSink:
     def __init__(self, writer):
+        """Bind lifecycle and native-operation storage to a locked private run writer."""
         self.writer = writer
 
     def emit(self, event):
+        """Append one typed lifecycle event to the private run journal."""
         self.writer.append_event(event)
 
     def transaction(self, observer, source_instance, approval, data, raw, approved):
+        """Persist original Verify bytes and a digest-bound normalized transaction record.
+
+        Keep provider-native fields private and expose only the precise decision to
+        trusted scenario code.
+        """
         import hashlib
 
         from .validation.models import TransactionEvidence
@@ -57,6 +77,9 @@ class StoreSink:
 
     def bind(self, binding):
         # Immutable stages retain the pre-call record and subsequent native response binding.
+        """Append immutable binding stages, retaining both pre-call intent and native
+        response IDs.
+        """
         self.writer.append_event(binding, "bindings.jsonl")
 
 
@@ -111,13 +134,22 @@ class BoundObserver:
 
     @property
     def failed(self):
+        """Read shared observer health so a child storage failure is visible to its parent."""
         return self.health[0]
 
     @failed.setter
     def failed(self, value):
+        """Update the shared failure flag without replacing the parent/child health
+        reference.
+        """
         self.health[0] = value
 
     def record(self, phase, detail, **metadata) -> bool:
+        """Emit a supported lifecycle event and optional metadata-only span.
+
+        Unsupported labels are ignored. Sink failures set the shared failure flag and
+        return false rather than interrupting a caller’s cleanup path.
+        """
         if phase not in PHASES or detail not in DETAILS:
             return False
         try:
@@ -179,6 +211,7 @@ class BoundObserver:
         return True
 
     def scope(self, phase):
+        """Create a metadata-only span context for a trusted phase, or a no-op context."""
         if not self.telemetry:
             return nullcontext()
         attributes = {
@@ -196,6 +229,11 @@ class BoundObserver:
 
     def begin_operation(self, **private_metadata):
         # A failed pre-call private binding must be visible to trusted callers before an effect.
+        """Persist the private pre-call binding before an observed external effect.
+
+        A storage failure raises before the effect can start; return the binding so the
+        response can later attach its native IDs.
+        """
         try:
             binding = PrivateOperationBinding(run_id=self.run_id, **private_metadata)
             self.sink.bind(binding)
@@ -206,6 +244,9 @@ class BoundObserver:
         return binding
 
     def finish_operation(self, binding, **native_fields):
+        """Append native response fields to the binding, marking observer failure if
+        unwritable.
+        """
         from .validation.models import now
 
         try:
@@ -220,6 +261,9 @@ class BoundObserver:
 
 
 def observer_decision(data, approved):
+    """Distinguish a verified approval, an explicit native denial, and an unverified
+    outcome.
+    """
     return (
         "approved"
         if approved

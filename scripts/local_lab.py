@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Local TLS PostgreSQL fixture for the existing HCP Vault integration."""
+"""Explicit Docker-based TLS PostgreSQL fixture for local integration work.
+
+The up command creates private keys/passwords and starts a container. Verify performs
+real database reads; down stops the container but retains its data volume. Ordinary
+tests do not invoke this script.
+"""
 
 import argparse
 import asyncio
@@ -24,6 +29,9 @@ PG_CA = LOCAL / "lab-tls" / "ca.crt"
 
 
 def compose(*args):
+    """Run Docker Compose with the private lab environment and hide credential-bearing
+    diagnostics.
+    """
     result = subprocess.run(
         ["docker", "compose", "--env-file", str(ENV), *args], capture_output=True
     )
@@ -34,6 +42,11 @@ def compose(*args):
 
 
 def generate_files():
+    """Create a private lab password and short-lived TLS fixture files if absent.
+
+    Discard the CA signing key after generating certificates; regeneration requires
+    removing the old fixture files deliberately.
+    """
     LOCAL.mkdir(mode=0o700, exist_ok=True)
     if not ENV.exists():
         ENV.write_text("LAB_POSTGRES_ADMIN_PASSWORD=" + secrets.token_urlsafe(32) + "\n")
@@ -92,6 +105,7 @@ def generate_files():
 
 
 async def verify():
+    """Connect to the local fixture using verified TLS and require the two synthetic rows."""
     import psycopg
 
     values = dotenv_values(ENV)
@@ -122,6 +136,9 @@ async def verify():
 
 
 async def main():
+    """Dispatch explicitly requested lab startup, verification, or shutdown and print safe
+    summaries.
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=["up", "verify", "down"])
     args = parser.parse_args()

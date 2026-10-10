@@ -1,3 +1,9 @@
+"""Live Verify approval adapter connecting trusted runtime actions to a phone decision.
+
+A configured device and signing factor must belong to the verified human. This
+adapter requests approval; it does not treat generic MFA success as action consent.
+"""
+
 from dataclasses import dataclass, field
 
 import httpx
@@ -19,6 +25,12 @@ class VerifyApprovalBackend:
     async def __call__(
         self, deps: Dependencies, approval: Approval, action: Action
     ) -> ApprovalOutcome:
+        """Verify device ownership, send one exact-action prompt, and await its bound
+        decision.
+
+        Recheck containment around provider work. Missing or ambiguous configuration
+        raises a safe error instead of choosing an arbitrary device or factor.
+        """
         s = self.settings
         if not s.verify_tenant_url or not s.verify_authenticator_id or not s.verify_user_id:
             raise SecurityError("verify_approval_configuration_missing")

@@ -1,3 +1,13 @@
+"""Trusted database credential flow using human and workload token delegation.
+
+The model supplies only a bounded record ID. This adapter verifies both identities,
+requests narrowly scoped Vault credentials, runs fixed SQL, and arranges cleanup.
+
+The human token identifies whose permission is used; the actor token identifies the
+agent client acting for them. Authorization details describe the exact provider path
+and operations requested, rather than asking for a general-purpose Vault token.
+"""
+
 import re
 from collections.abc import Callable
 from contextlib import nullcontext
@@ -15,6 +25,11 @@ from .vault import VaultClient, read_postgres, validate_path
 
 
 def validate_delegation(claims: dict, subject: str, actor: dict, details: list[dict]):
+    """Require the exchanged claims to bind the human, actor, issuer, and requested rights.
+
+    A signed token alone is insufficient: its delegation fields must match the
+    identities and authorization details used for this exchange.
+    """
     act = claims.get("act")
     if (
         claims.get("sub") != subject
@@ -40,6 +55,7 @@ class DatabaseBroker:
     http: httpx.AsyncClient | None = field(default=None, repr=False)
 
     def observe(self, stage: str) -> None:
+        """Publish a bounded lifecycle stage to the optional trusted observer callback."""
         if self.observer:
             try:
                 self.observer(stage)
@@ -58,6 +74,7 @@ class DatabaseBroker:
             self.operation_observer.record(*typed[stage])
 
     async def __call__(self, record_id: int) -> list[dict]:
+        """Read one record through verified delegation, rejecting incomplete configuration."""
         try:
             return await self._read(record_id)
         except SecurityError as error:
@@ -65,6 +82,12 @@ class DatabaseBroker:
             raise
 
     async def _read(self, record_id: int) -> list[dict]:
+        """Exchange human-plus-actor authority, acquire a lease, and read within its
+        lifetime.
+
+        Cleanup obtains separate authority scoped to the exact lease. Native tokens and
+        credentials remain inside this adapter and are not returned with the rows.
+        """
         s = self.settings
         if not all(
             (s.vault_addr, s.vault_audience, s.oauth_audience, s.database_host, s.database_name)
@@ -85,6 +108,9 @@ class DatabaseBroker:
             operation_observer = self.operation_observer
 
             def begin_identity():
+                """Record private identity-operation metadata before making its token
+                request.
+                """
                 if (
                     operation_observer
                     and operation_observer.validation_id
@@ -114,6 +140,9 @@ class DatabaseBroker:
             verifier = JWTVerifier(oauth, s.vault_audience, token_typ=s.oauth_access_token_typ)
 
             async def delegated(details):
+                """Exchange and verify a token for the exact authorization details
+                supplied.
+                """
                 exchange_binding = begin_identity()
                 exchanged = await oauth.exchange_details(
                     self.subject_token, actor.access_token, details, s.vault_audience
@@ -124,6 +153,7 @@ class DatabaseBroker:
                     operation_observer.finish_operation(exchange_binding)
                 return exchanged.access_token
 
+            # Reading a credential and revoking it are different rights; do not widen this token.
             read_details = [
                 {
                     "type": "vault:path_access",
@@ -138,11 +168,19 @@ class DatabaseBroker:
             )
 
             async def revoke(lease_id):
+                """Validate the lease handle and obtain exact-lease authority for
+                revocation.
+
+                The provider response acknowledges the revoke request; it is not an
+                independent
+                check that the database has finished removing the credential.
+                """
                 prefix = s.vault_read_path + "/"
                 if not lease_id.startswith(prefix) or not re.fullmatch(
                     r"[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*", lease_id.removeprefix(prefix)
                 ):
                     raise SecurityError("vault_lease_scope_invalid")
+                # Bind cleanup authority to this native lease, not the whole credentials role.
                 cleanup_details = [
                     {
                         "type": "vault:path_access",

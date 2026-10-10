@@ -1,4 +1,8 @@
-"""Explicit public projections. Credentials and internal records never become response models."""
+"""Strict request contracts and credential-free browser projections.
+
+The closed error catalog tells the UI a stage and next action without provider
+responses. JobView is mutable only through validated assignments in trusted code.
+"""
 
 from datetime import UTC, datetime
 from typing import Literal
@@ -38,6 +42,7 @@ ERRORS = {
 
 
 def now():
+    """Return an aware UTC timestamp for public job lifecycle fields."""
     return datetime.now(UTC)
 
 
@@ -47,6 +52,7 @@ class Versioned(StrictModel):
     @field_validator("schema_version", mode="before")
     @classmethod
     def exact_version(cls, value):
+        """Reject coercion or unsupported browser contract versions."""
         if type(value) is not int or value != 1:
             raise ValueError("Schema version must be integer 1")
         return value
@@ -59,12 +65,14 @@ class WorkflowError(StrictModel):
 
     @model_validator(mode="after")
     def closed_mapping(self):
+        """Require stage and next action to match the maintained error-code catalog."""
         if (self.stage, self.next_action) != ERRORS[self.code]:
             raise ValueError("Invalid workspace error mapping")
         return self
 
     @classmethod
     def of(cls, code):
+        """Construct the canonical public projection for a supported safe error code."""
         if code not in ERRORS:
             raise ValueError("Unknown workspace error")
         return cls(code=code, stage=ERRORS[code][0], next_action=ERRORS[code][1])
@@ -72,6 +80,7 @@ class WorkflowError(StrictModel):
     @field_validator("code")
     @classmethod
     def closed_code(cls, value):
+        """Reject arbitrary error text outside the public catalog."""
         if value not in ERRORS:
             raise ValueError("Unknown workspace error")
         return value
@@ -139,6 +148,7 @@ class JobView(Versioned):
     @field_validator("created_at", "started_at", "finished_at")
     @classmethod
     def utc(cls, value):
+        """Require public job timestamps to be expressed in UTC."""
         if value is not None and value.utcoffset().total_seconds() != 0:
             raise ValueError("UTC time required")
         return value

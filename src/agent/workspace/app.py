@@ -1,4 +1,9 @@
-"""Single-worker local application; the bearer service stays independent."""
+"""Single-worker loopback browser application with server-held credentials.
+
+The browser receives opaque session cookies, CSRF tokens, and public job views.
+OAuth completion, admission, effects, and cleanup remain in trusted Python code.
+The separate bearer-token API does not share this browser authentication flow.
+"""
 
 import asyncio
 from contextlib import asynccontextmanager
@@ -31,6 +36,7 @@ from agent.workspace.sessions import SessionStore, digest
 
 
 def prerequisites(config, *, supplied_model=False):
+    """List missing or unsupported workspace settings without making provider requests."""
     missing = [
         name
         for name in ("LOGIN_CLIENT_ID", "LOGIN_CLIENT_SECRET", "OAUTH_AUDIENCE")
@@ -54,6 +60,11 @@ def create_workspace_app(
     database_reader_factory=None,
     approval_backend=None,
 ):
+    """Build the loopback workspace with isolated sessions and one bounded run manager.
+
+    Tests may inject models and transports. Production credentials remain in the
+    server; shutdown drains session work before discarding secrets.
+    """
     config = settings or Settings()
     if not isinstance(port, int) or not 1024 <= port <= 65535:
         raise SecurityError("invalid_request")
@@ -67,6 +78,7 @@ def create_workspace_app(
 
     @asynccontextmanager
     async def lifespan(app):
+        """Own the HTTP client, auth manager, expiry timer, and orderly session shutdown."""
         async with httpx.AsyncClient(
             timeout=15, follow_redirects=False, trust_env=False, transport=http_transport
         ) as http:
@@ -81,6 +93,7 @@ def create_workspace_app(
             )
 
             async def expire():
+                """Prune expired bootstrap/session records once per second until shutdown."""
                 while True:
                     store.prune()
                     await asyncio.sleep(1)
@@ -100,6 +113,9 @@ def create_workspace_app(
 
     @app.exception_handler(SecurityError)
     async def safe_error(request, error):
+        """Convert trusted error codes into the closed public error mapping and HTTP
+        status.
+        """
         code = str(error)
         try:
             value = WorkflowError.of(code)
@@ -119,17 +135,22 @@ def create_workspace_app(
 
     @app.exception_handler(RequestValidationError)
     async def bad_request(request, error):
+        """Hide validation details behind a generic invalid-request response."""
         return JSONResponse(
             {"error": WorkflowError.of("invalid_request").model_dump()}, status_code=400
         )
 
     def cookie(request):
+        """Read the workspace’s opaque cookie, rejecting duplicate Cookie headers."""
         raw = request.headers.getlist("cookie")
         if len(raw) > 1:
             raise SecurityError("request_forbidden")
         return cookie_value(raw[0] if raw else "", cookie_name)
 
     def context(request, *, signed=False):
+        """Resolve the cookie to a server-held browser/session context and optionally
+        require sign-in.
+        """
         key = cookie(request)
         session = store.session(key)
         if signed and (not session or session.state != "active"):
@@ -137,6 +158,7 @@ def create_workspace_app(
         return (session or store.browsers.get(digest(key))) if key else None
 
     def mutation(request, *, signed=False):
+        """Require a valid context and matching CSRF token before a state-changing request."""
         value = context(request, signed=signed)
         if not value:
             raise SecurityError("sign_in_required" if signed else "request_forbidden")
@@ -144,6 +166,9 @@ def create_workspace_app(
         return value
 
     async def body(request, model):
+        """Parse the strict request model without exposing submitted values in validation
+        errors.
+        """
         try:
             return model.model_validate_json(await request.body())
         except (ValidationError, ValueError):
@@ -155,6 +180,7 @@ def create_workspace_app(
 
     @app.get("/")
     async def index():
+        """Serve the packaged workspace HTML, with security headers added by Boundary."""
         return Response(
             files("agent.workspace").joinpath("static/index.html").read_bytes(),
             media_type="text/html",
@@ -162,6 +188,7 @@ def create_workspace_app(
 
     @app.get("/assets/{name}")
     async def asset(name):
+        """Serve only the two named packaged assets, rejecting arbitrary file paths."""
         if name not in {"app.js", "style.css"}:
             return Response(status_code=404)
         return Response(
@@ -171,6 +198,12 @@ def create_workspace_app(
 
     @app.get("/workspace/session")
     async def session_view(request: Request):
+        """Bootstrap a bounded browser context or project the current session without
+        credentials.
+
+        Issue an HttpOnly cookie and expose only configuration names and a CSRF token;
+        consume a pending login error once.
+        """
         current = context(request)
         if current is None:
             try:
@@ -211,6 +244,13 @@ def create_workspace_app(
 
     @app.post("/auth/login")
     async def login(request: Request):
+        """Start one CSRF-protected login attempt when the workspace can admit
+        authentication.
+
+        Close a prior signed-in context before creating a new bootstrap context;
+        provider
+        setup failures return a safe identity error.
+        """
         current = mutation(request)
         await body(request, EmptyRequest)
         manager = app.state.manager
@@ -229,6 +269,12 @@ def create_workspace_app(
 
     @app.get("/auth/callback")
     async def callback(request: Request):
+        """Consume a bound one-time login callback and rotate the authenticated session
+        cookie.
+
+        Reject duplicate or ambiguous parameters. Provider cancellation and verification
+        errors return safe state to the workspace rather than raw provider text.
+        """
         current = context(request)
         query = request.query_params
         if (
@@ -262,6 +308,7 @@ def create_workspace_app(
 
     @app.post("/auth/logout")
     async def logout(request: Request):
+        """Close the session, contain active work, and delete its browser cookie."""
         session = mutation(request)
         if not hasattr(session, "state"):
             raise SecurityError("sign_in_required")
@@ -273,6 +320,7 @@ def create_workspace_app(
 
     @app.post("/workspace/runs")
     async def submit(request: Request):
+        """Admit a CSRF-protected task under its idempotent submission UUID."""
         session = mutation(request, signed=True)
         value = await body(request, TaskSubmission)
         existing = value.submission_id in session.submissions
@@ -281,6 +329,7 @@ def create_workspace_app(
 
     @app.get("/workspace/runs")
     async def list_runs(request: Request):
+        """Return reverse-chronological public job views owned by this signed-in session."""
         session = context(request, signed=True)
         return {
             "schema_version": 1,
@@ -291,6 +340,7 @@ def create_workspace_app(
 
     @app.get("/workspace/runs/{job_id}")
     async def status(request: Request, job_id: str):
+        """Return one owned job view, treating invalid or foreign IDs as not found."""
         session = context(request, signed=True)
         try:
             identifier = UUID(job_id)
@@ -300,6 +350,9 @@ def create_workspace_app(
 
     @app.post("/workspace/runs/{job_id}/retry")
     async def retry(request: Request, job_id: str):
+        """Request a separately admitted exact-action approval retry, never a replay of the
+        task.
+        """
         session = mutation(request, signed=True)
         value = await body(request, RetrySubmission)
         try:

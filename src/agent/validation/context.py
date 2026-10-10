@@ -1,4 +1,8 @@
-"""Private configuration grouping; never source authentication or credential capture."""
+"""Private deployment fingerprints for comparing live validation contexts.
+
+Fingerprints include relevant nonsecret configuration and file hashes. They detect
+configuration drift; they do not verify remote identity, permissions, or availability.
+"""
 
 import hashlib
 from importlib.resources import files
@@ -38,6 +42,9 @@ SELECTORS = (
 
 
 def profile_bytes(path):
+    """Read profile bytes from the configured file or packaged default with bounded private
+    I/O.
+    """
     p = Path(path)
     if path == "config/agents.json" and not p.is_file():
         resource = files("agent").joinpath("default_agents.json")
@@ -54,6 +61,7 @@ def profile_bytes(path):
 
 
 def capture_context(settings):
+    """Capture and hash the nonsecret execution configuration and relevant local files."""
     selectors = {k: getattr(settings, k) for k in SELECTORS}
     selectors["logfire_base_url"] = settings.logfire_base_url or "token-routed"
     for key, read in (

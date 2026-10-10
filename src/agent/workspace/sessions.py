@@ -1,4 +1,9 @@
-"""Bounded server-memory browser authority. No credential persistence."""
+"""Bounded process-local browser contexts and authenticated sessions.
+
+Opaque cookies are indexed by digest. Credentials stay in memory and are rotated
+into a fresh session after login. Closing contains work before asynchronous draining;
+secrets are discarded only after that work can no longer use them.
+"""
 
 import asyncio
 import hashlib
@@ -11,10 +16,12 @@ from agent.security import SecurityError
 
 
 def opaque():
+    """Generate an unpredictable URL-safe cookie or CSRF token."""
     return secrets.token_urlsafe(32)
 
 
 def digest(value):
+    """Hash an opaque cookie for lookup without using its raw value as a registry key."""
     return hashlib.sha256(value.encode()).hexdigest()
 
 
@@ -48,11 +55,15 @@ class Session(Browser):
 
 class SessionStore:
     def __init__(self, *, clock=time.monotonic):
+        """Initialize bounded browser/session registries and cleanup tracking."""
         self.clock, self.browsers, self.sessions = clock, {}, {}
         self.on_close = None
         self.drains = set()
 
     def prune(self):
+        """Expire stale bootstrap contexts and close sessions past idle or absolute
+        deadlines.
+        """
         now = self.clock()
         for key, b in list(self.browsers.items()):
             if b.deadline <= now:
@@ -64,6 +75,9 @@ class SessionStore:
                 self.close(s)
 
     def bootstrap(self, cookie):
+        """Reuse an eligible browser context or create one within the bootstrap capacity
+        bound.
+        """
         self.prune()
         key = digest(cookie) if cookie else ""
         if key in self.browsers:
@@ -75,24 +89,31 @@ class SessionStore:
         return b
 
     def session(self, cookie):
+        """Resolve a cookie to its current server-held session after expiry checks."""
         self.prune()
         s = self.sessions.get(digest(cookie)) if cookie else None
         return s if s and s.state not in {"closing", "closed"} else None
 
     def authenticate(self, browser, credentials):
+        """Rotate a completed browser login into a new authenticated session and cookie."""
         self.prune()
         if len(self.sessions) >= 4:
             raise SecurityError("capacity_exceeded")
         self.browsers.pop(digest(browser.cookie), None)
         now = self.clock()
+        # Rotate cookie/CSRF so a bootstrap handle never becomes an authenticated handle.
         s = Session(credentials=credentials, created=now, touched=now)
         self.sessions[digest(s.cookie)] = s
         return s
 
     def touch(self, session):
+        """Update session activity without extending its absolute lifetime."""
         session.touched = self.clock()
 
     def close(self, session):
+        """Mark a session closing and contain its work before scheduling credential
+        cleanup.
+        """
         if session.state in {"closing", "closed"}:
             return
         session.state = "closing"
@@ -106,11 +127,17 @@ class SessionStore:
             self._discard(session)
 
     async def _finish(self, session, drain):
+        """Await the run-manager drain, then discard session credentials and registry
+        entries.
+        """
         if drain:
             await drain
         self._discard(session)
 
     def _discard(self, session):
+        """Clear private credentials, jobs, and submission keys once draining has
+        completed.
+        """
         session.credentials = None
         session.jobs.clear()
         session.submissions.clear()
@@ -118,6 +145,9 @@ class SessionStore:
         self.sessions.pop(digest(session.cookie), None)
 
     async def shutdown(self):
+        """Close all sessions, await their cleanup tasks, and clear remaining browser
+        contexts.
+        """
         for s in list(self.sessions.values()):
             self.close(s)
         if self.drains:

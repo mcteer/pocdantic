@@ -1,4 +1,8 @@
-"""Sequential bounded runs with one terminal projection per selection."""
+"""Bounded sequential execution of trusted validation scenarios.
+
+Every selected scenario receives a terminal observation. Live uncertainty stops
+later effects; finalized execution is sealed before reports are reconstructed.
+"""
 
 import asyncio
 import time
@@ -25,6 +29,12 @@ async def run_suite(
     settings=None,
     factory=None,
 ):
+    """Select, store, and execute a validation suite within its run and cleanup budgets.
+
+    Use synthetic adapters only in offline mode. Cancellation, timeouts, or live
+    uncertainty stop further effects; persist terminal observations and bounded
+    telemetry-delivery metadata, then seal and rebuild the report.
+    """
     suite, selection = select_suite(load_catalog(), suite_label, names, mode, interactive)
     bounds = bounds or Bounds(scenario_timeout=30 if mode == "offline" else 150)
     store = store or PrivateStore()
