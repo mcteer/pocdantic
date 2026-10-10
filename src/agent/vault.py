@@ -40,6 +40,7 @@ class VaultClient:
         *,
         operation_observer=None,
         credential_lifecycle=None,
+        credential_guard=None,
     ):
         """Bind the provider address, namespace, HTTP client, and optional private
         observer.
@@ -50,6 +51,7 @@ class VaultClient:
         self.address, self.namespace, self.http = address.rstrip("/"), namespace, http
         self.operation_observer = operation_observer
         self.credential_lifecycle = credential_lifecycle
+        self.credential_guard = credential_guard
 
     async def request(
         self, method: str, path: str, token: SecretStr | None = None, body: dict | None = None
@@ -94,6 +96,10 @@ class VaultClient:
                 if phase != "cleanup":
                     raise SecurityError("storage_error") from None
         try:
+            # Last trusted admission check immediately before credential dispatch.
+            # Cleanup remains permitted after containment so existing leases can drain.
+            if phase == "credential" and self.credential_guard:
+                self.credential_guard.check()
             response = await self.http.request(
                 method, f"{self.address}/v1/{path}", headers=headers, json=body
             )

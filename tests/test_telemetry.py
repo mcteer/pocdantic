@@ -228,3 +228,19 @@ def test_logfire_endpoint_rejects_untrusted_forms(endpoint):
 
     with pytest.raises(ValidationError):
         Settings(_env_file=None, logfire_base_url=endpoint)
+
+
+def test_response_action_labels_cannot_carry_private_identifiers():
+    """The export boundary preserves only known action/status values."""
+    from agent.telemetry import safe_attributes
+
+    assert safe_attributes(
+        {
+            "response_action": "revoke_exact",
+            "response_status": "uncertain",
+            "incident_id": "secret-canary",
+            "source": "secret-canary",
+            "native_handle": "secret-canary",
+        }
+    ) == {"response_action": "revoke_exact", "response_status": "uncertain"}
+    assert safe_attributes({"response_action": "secret-canary"}) == {}

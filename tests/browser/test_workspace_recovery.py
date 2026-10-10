@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import httpx
@@ -10,6 +11,23 @@ import pytest
 from playwright.sync_api import expect
 
 from agent.recovery.commands import execute_recovery
+from agent.recovery.store import RecoveryError
+
+
+def journal_operation(operation):
+    """Wait for short browser status reads before synthetic intent or inspection.
+
+    Only lock contention is retried. Storage failures and uncertain provider work
+    remain errors; this helper never wraps network cleanup or receipt submission.
+    """
+    deadline = time.monotonic() + 2
+    while True:
+        try:
+            return operation()
+        except RecoveryError as error:
+            if str(error) != "recovery_busy" or time.monotonic() >= deadline:
+                raise
+            time.sleep(0.01)
 
 
 @pytest.mark.parametrize("authority", ["active", "signed_out", "expired"])
@@ -24,7 +42,7 @@ def test_operator_closure_and_manual_new_submission(workspace_browser, authority
     prior_counts = dict(app.state.test_counts)
     store = app.state.recovery
     with store.effect() as owner:
-        item = store.begin(owner)
+        item = journal_operation(lambda: store.begin(owner))
         item = store.update(
             item.incident_id,
             item.revision,
@@ -93,13 +111,12 @@ def test_anonymous_missing_state_has_no_incident_details(workspace_browser):
 
 def test_restart_loses_sessions_jobs_but_keeps_durable_block(workspace_browser):
     import threading
-    import time
 
     import uvicorn
     from pydantic_ai.models.test import TestModel
     from starlette.testclient import TestClient
 
-    from agent.recovery.store import RecoveryError, RecoveryStore
+    from agent.recovery.store import RecoveryStore
     from agent.workspace.app import create_workspace_app
 
     page, origin, app, provider = workspace_browser
@@ -108,7 +125,7 @@ def test_restart_loses_sessions_jobs_but_keeps_durable_block(workspace_browser):
     expect(page.locator("#session-status")).to_have_text("Signed in")
     store = app.state.recovery
     with store.effect() as owner:
-        item = store.begin(owner)
+        item = journal_operation(lambda: store.begin(owner))
     second = create_workspace_app(
         app.state.config,
         port=int(origin.rsplit(":", 1)[1]),
@@ -142,8 +159,9 @@ def test_restart_loses_sessions_jobs_but_keeps_durable_block(workspace_browser):
         expect(page.locator("#operations-status")).to_contain_text("blocked")
         expect(page.locator("#incidents li")).to_have_count(0)
         expect(page.locator("#history li")).to_have_count(0)
-        assert store.read().attempts[0].incident_id == item.incident_id
-        assert store.read().attempts[0].state == "unresolved"
+        state = journal_operation(store.read)
+        assert state.attempts[0].incident_id == item.incident_id
+        assert state.attempts[0].state == "unresolved"
         assert not app.state.store.sessions
         assert provider.calls == ["authorization_code"]
     finally:

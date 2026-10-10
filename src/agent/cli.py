@@ -60,6 +60,10 @@ async def execute(args) -> int:
     Runs and batches authenticate before creating trusted adapters. Live probe and
     push-demo commands can issue tokens or phone prompts; demo stays synthetic.
     """
+    if args.command == "respond":
+        from .response.commands import execute_response
+
+        return await execute_response(args)
     if args.command == "recover":
         from .recovery.commands import execute_recovery
 
@@ -80,7 +84,10 @@ async def execute(args) -> int:
         return 0
     if args.command == "demo":
         # Explicitly synthetic mode: no local credentials/Logfire and no external model call.
-        runtime = Runtime(Settings(_env_file=None), model=demo_model())
+        from .response.guard import MemoryStore
+
+        offline = Settings(_env_file=None)
+        runtime = Runtime(offline, model=demo_model(), response_store=MemoryStore(offline))
         child_model = demo_model()
         with runtime.agents["ticket-reader"].override(model=child_model):
             result = await runtime.run(
@@ -159,8 +166,16 @@ def main() -> None:
     from .recovery.commands import add_recovery_parser
 
     add_recovery_parser(sub)
+    from .response.commands import add_response_parser
+
+    add_response_parser(sub)
     args = parser.parse_args()
     try:
+        if args.command == "respond" and args.response_command == "serve":
+            from .response.api import serve
+
+            serve(Settings(), args.port)
+            return
         if args.command == "workspace":
             import socket
 

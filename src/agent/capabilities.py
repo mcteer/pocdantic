@@ -48,8 +48,12 @@ class Dependencies:
     ) = field(default=None, repr=False)
     database_reader: Callable[[int], Awaitable[list[dict]]] | None = field(default=None, repr=False)
 
+    root_guard: object = field(default=None, repr=False)
+
     def check_containment(self) -> None:
         """Reject work blocked by run, parent-run, profile, or workload containment."""
+        if self.root_guard is not None:
+            self.root_guard.check()
         self.containment.check(self.workload_definition, self.run_id)
         self.containment.check(self.logical_agent, self.run_id)
         if self.parent_run_id:
@@ -262,6 +266,11 @@ class ContainmentCapability(AbstractCapability[Dependencies]):
         """Recheck containment before allowing another model request."""
         ctx.deps.check_containment()
         return request_context
+
+    async def after_model_request(self, ctx, *, request_context, response):
+        """Deny effects from a model response received after durable containment."""
+        ctx.deps.check_containment()
+        return response
 
     async def after_output_validate(self, ctx, *, output_context, output):
         """Reject validated output if containment changed while the model was running."""

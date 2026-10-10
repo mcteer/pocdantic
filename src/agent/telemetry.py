@@ -50,6 +50,7 @@ SAFE_NAMES = frozenset(
         "cleanup",
         "telemetry",
         "report",
+        "response",
         "agent",
         "model",
         "tool",
@@ -79,6 +80,10 @@ COUNTS = frozenset(
     )
 )
 ENUMS = {
+    "response_action": frozenset(("cancel_local", "revoke_exact")),
+    "response_status": frozenset(
+        ("planned", "submitted", "confirmed", "denied", "failed", "uncertain")
+    ),
     "phase": SAFE_NAMES,
     "outcome": frozenset(("pass", "fail", "blocked", "interrupted")),
     "detail": frozenset(

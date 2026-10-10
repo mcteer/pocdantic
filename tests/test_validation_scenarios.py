@@ -1,5 +1,6 @@
 import pytest
 
+from agent.response.guard import MemoryStore
 from agent.validation.catalog import load_catalog
 from agent.validation.scenarios import offline_scenario
 
@@ -90,6 +91,7 @@ async def test_actor_only_boundary_denial_or_unexpected_success_cleanup(
             Principal(issuer="synthetic", subject="synthetic-user"),
             http=http,
             recovery_store=recovery,
+            response_store=MemoryStore(s),
         )
     assert result.outcome == ("pass" if status == 403 else "fail")
     assert result.effect_attempts == 1

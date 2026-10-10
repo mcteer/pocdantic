@@ -71,6 +71,9 @@ async def offline_scenario(label, *, cleanup_timeout=30, runtime_options=None):
     """
     options = dict(runtime_options or {})
     settings = options.pop("settings", offline_settings())
+    from ..response.guard import MemoryStore
+
+    options.setdefault("response_store", MemoryStore(settings))
     principal = Principal(
         issuer="offline-validation",
         subject="synthetic-user",
@@ -222,6 +225,8 @@ async def offline_scenario(label, *, cleanup_timeout=30, runtime_options=None):
         ok = calls == ["GET", "PUT"] and underlying == (
             "fail" if label == "cleanup-failure" else "interrupted"
         )
+        if label == "cleanup-cancelled":
+            ok = ok and await offline_response_scenario()
         return EffectResult("pass" if ok else "fail", 1, 0, cleanup, underlying)
     raise ValueError("invalid_selection")
 
@@ -379,7 +384,14 @@ async def live_scenario(label, *, settings=None, cleanup_timeout=30, runtime_opt
 
 
 async def actor_only_probe(
-    settings, principal, *, cleanup_timeout=30, http=None, observer=None, recovery_store=None
+    settings,
+    principal,
+    *,
+    cleanup_timeout=30,
+    http=None,
+    observer=None,
+    recovery_store=None,
+    response_store=None,
 ):
     """Attempt the forbidden actor credential boundary once; clean any unexpected lease.
 
@@ -389,21 +401,35 @@ async def actor_only_probe(
     from ..recovery.store import RecoveryStore
 
     recovery = recovery_store or RecoveryStore(settings)
-    # The forbidden probe is still an issuance boundary and shares the same journal.
-    with recovery.effect() as owner:
-        return await _actor_only_owned(
-            settings,
-            principal,
-            owner,
-            recovery,
-            cleanup_timeout=cleanup_timeout,
-            http=http,
-            observer=observer,
-        )
+    from uuid import uuid4
+
+    from ..recovery.workers import descriptor_scope
+    from ..response.guard import root_scope
+    from ..response.store import ResponseStore
+
+    control = response_store or ResponseStore(settings, project=recovery.project, recovery=recovery)
+
+    def contain(root_id):
+        """Cancellation is requested by the owning probe watcher, never telemetry input."""
+        pass
+
+    async with root_scope(control, uuid4(), uuid4(), principal, contain) as guard:
+        with recovery.effect() as owner, descriptor_scope(owner.fd):
+            owner.binding = guard.ownership()
+            return await _actor_only_owned(
+                settings,
+                principal,
+                owner,
+                recovery,
+                cleanup_timeout=cleanup_timeout,
+                http=http,
+                observer=observer,
+                guard=guard,
+            )
 
 
 async def _actor_only_owned(
-    settings, principal, owner, recovery, *, cleanup_timeout, http, observer
+    settings, principal, owner, recovery, *, cleanup_timeout, http, observer, guard
 ):
     """Run one journal-gated probe while retaining effect ownership through cleanup."""
     import re
@@ -427,17 +453,21 @@ async def _actor_only_owned(
     )
     async with context as client:
         oauth = OAuthClient(oauth_config(s), client)
+        guard.check()
         actor = await oauth.client_credentials()
+        guard.check()
         claims = await JWTVerifier(
             oauth, s.actor_audience or s.oauth_client_id, token_typ=s.oauth_access_token_typ
         ).verify_claims(actor.access_token)
         if claims["sub"] == principal.subject:
             return EffectResult("blocked", reason=Reason.prerequisite_missing)
+        guard.check()
         vault = VaultClient(
             s.vault_addr,
             s.vault_namespace,
             client,
             operation_observer=observer,
+            credential_guard=guard,
             credential_lifecycle=CredentialLifecycle(recovery, owner, observer),
         )
 
@@ -476,6 +506,7 @@ async def _actor_only_owned(
 
         try:
             validate_path(s.vault_read_path)
+            guard.check()
             attempted = 1
             async with vault.credentials(
                 actor.access_token,
@@ -503,3 +534,98 @@ async def _actor_only_owned(
                 "fail",
                 Reason.cleanup_failed,
             )
+
+
+async def offline_response_scenario():
+    """Exercise durable containment, attributable cleanup and release without live settings.
+
+    All state belongs to a temporary installation, all provider traffic uses a mock
+    transport, and synthetic success makes no claim about native session revocation.
+    This extends the existing cleanup-cancelled validation without changing its catalog.
+    """
+    import os
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+
+    from ..recovery.store import RecoveryStore
+    from ..response.coordinator import Coordinator
+    from ..response.models import RiskSignal, SourcePolicy
+    from ..response.store import ResponseStore
+    from .models import canonical, now
+
+    with TemporaryDirectory(prefix="agent-response-validation-") as directory:
+        project = Path(directory).resolve()
+        settings = offline_settings().model_copy(
+            update={
+                "vault_addr": "https://vault.example",
+                "vault_read_path": "database/creds/read",
+                "vault_namespace": "synthetic",
+                "vault_audience": "vault",
+                "oauth_issuer": "https://id.example",
+                "oauth_client_id": "synthetic-actor",
+                "oauth_audience": "resource",
+                "database_host": "db.example",
+                "database_name": "synthetic",
+                "vault_token": SecretStr("synthetic-operator"),
+            }
+        )
+        recovery = RecoveryStore(settings, project=project)
+        recovery.initialize()
+        store = ResponseStore(settings, project=project, recovery=recovery)
+        store.prepare()
+        policy = SourcePolicy.model_validate(
+            store.policy().model_dump() | {"automatic_cleanup": True}
+        )
+        (store.root / "policy.json").write_bytes(canonical(policy))
+        store.initialize()
+        principal = Principal(issuer=settings.oauth_issuer, subject="synthetic-user")
+        run, fd = store.register(uuid4(), uuid4(), principal)
+        with recovery.effect() as owner:
+            attempt = recovery.begin(owner, run.ownership())
+            attempt = recovery.update(
+                attempt.incident_id,
+                attempt.revision,
+                state="acquired",
+                lease_handle="database/creds/read/synthetic",
+            )
+            recovery.update(attempt.incident_id, attempt.revision, state="unresolved")
+        calls = []
+
+        def handle(request):
+            """Acknowledge only one exact synthetic revocation."""
+            calls.append(request)
+            assert request.url.host == "vault.example" and request.method == "PUT"
+            assert request.content == b'{"lease_id":"database/creds/read/synthetic","sync":true}'
+            return httpx.Response(204)
+
+        coordinator = Coordinator(store, transport=httpx.MockTransport(handle))
+        item, _ = coordinator.submit(
+            RiskSignal(
+                event_id="offline-response",
+                occurred_at=now(),
+                reason="suspected_compromise",
+                target={"kind": "definition", "workload_definition": settings.workload_definition},
+            )
+        )
+        draining = coordinator.reconcile(item.incident_id)
+        if draining.reason_code != "owner_draining":
+            return False
+        store.finish(run)
+        os.close(fd)
+        settled = await coordinator.process(item.incident_id)
+        coordinator.reconcile(item.incident_id)
+        coordinator.release(
+            settings.workload_definition,
+            [item.incident_id],
+            store.read().revision,
+            "offline-operator",
+        )
+        fresh, fd = store.register(uuid4(), uuid4(), principal)
+        store.finish(fresh)
+        os.close(fd)
+        return (
+            settled.phase == "settled"
+            and len(calls) == 1
+            and fresh.generation > run.generation
+            and not store.read().holds
+        )

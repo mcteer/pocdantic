@@ -190,11 +190,14 @@ class OAuthClient:
 
 
 class JWTVerifier:
-    def __init__(self, oauth: OAuthClient, audience: str, *, token_typ: str = "at+jwt"):
+    def __init__(
+        self, oauth: OAuthClient, audience: str, *, token_typ: str = "at+jwt", leeway: int = 0
+    ):
         """Bind verification to an audience and expected access-token type."""
         if not audience:
             raise SecurityError("oauth_audience_missing")
         self.oauth, self.audience, self.token_typ = oauth, audience, token_typ
+        self.leeway = leeway
 
     async def verify_claims(self, token: SecretStr) -> dict:
         """Verify signature, issuer, audience, token type, and required time claims via
@@ -218,6 +221,7 @@ class JWTVerifier:
                 key=key.key,
                 algorithms=[header["alg"]],
                 audience=self.audience,
+                leeway=self.leeway,
                 issuer=metadata["issuer"],
                 options={"require": ["iss", "sub", "aud", "exp", "iat"]},
             )

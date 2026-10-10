@@ -271,3 +271,16 @@ def observer_decision(data, approved):
         if data.get("state") in {"DENIED", "VERIFY_DENIED", "USER_DENIED"}
         else "unverified"
     )
+
+
+def response_action(telemetry, kind, status):
+    """Emit only closed action/status labels, without incident or provider identifiers.
+
+    Observation never grants authority or changes durable response state. The tracing
+    boundary discards unsupported values before they reach an exporter.
+    """
+    if telemetry is not None:
+        with telemetry.provider.get_tracer("agent").start_as_current_span(
+            "response", attributes={"response_action": kind, "response_status": status}
+        ):
+            pass

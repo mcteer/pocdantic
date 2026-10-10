@@ -72,6 +72,13 @@ async def test_authenticated_api_database_boundary_shares_recovery_gate(
 
     async def boundary(self, request, principal, **kwargs):
         broker = kwargs["database_reader"]
+        from dataclasses import replace
+        from uuid import uuid4
+
+        from agent.response.guard import RootGuard
+
+        binding, fd = self.response_store.register(request.request_id, uuid4(), principal)
+        broker = replace(broker, run_guard=RootGuard(self.response_store, binding, fd))
         assert broker.recovery_store is recovery_store
         with pytest.raises(SecurityError, match="acquisition_uncertain"):
             await broker(1)

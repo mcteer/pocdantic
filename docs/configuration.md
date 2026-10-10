@@ -152,3 +152,28 @@ memory and are lost on restart.
 `VAULT_TOKEN` also authorizes an explicitly invoked exact operator cleanup. Ordinary
 runtime delegation never falls back to it. Review the synchronous RAR/ACL migration and
 private evidence format in [Durable recovery](usage.md#durable-recovery).
+
+## Response policy
+
+`agent respond init --prepare` creates a private `.local/response/policy.json` draft.
+Keep its generated definition, environment digest and issuer. Local-only enrollment uses
+`intake_mode: local_only`, `sources: []`, `audience: null` and `automatic_cleanup: false`.
+No response-specific environment variables are required. Policy/state changes after
+initialization fail closed; never reset these files to bypass an incident.
+
+Relay mode requires a dedicated audience distinct from human, actor and Vault audiences,
+and 1–16 exact approved automation issuer/subject mappings. Each mapping has a unique
+alias and allowed scopes (`root_run`, `definition`, or both). The pinned issuer must match
+normal identity configuration. The maintained `config/response.example.json` is a synthetic
+local-only example; register the automation identity with your provider separately.
+Relay JWTs require `response:submit`, verified signature/issuer/audience and bounded
+five-minute issue/expiry windows. Cookies, browser sessions and ordinary task tokens confer
+no response authority. The separate API listens only on loopback; it has no remote release
+endpoint or browser administration controls.
+
+Enabling `automatic_cleanup` before enrollment opts in to exact attributable lease
+revocation using the existing `VAULT_TOKEN` operator credential. Leave it false for
+containment-only operation. Never put tokens in the policy. Unknown ownership/issuance or
+unconfirmed responses require existing explicit recovery; the responder cannot invent
+proof or automatically replay submitted actions. Preserve both private journal directories
+and their anchors together. Stop all owners before migration or storage repair.

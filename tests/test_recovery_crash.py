@@ -15,7 +15,7 @@ CHILD = """
 import sys, asyncio, httpx
 sys.path.insert(0, 'tests')
 from recovery_support import settings, crash_checkpoint
-from agent.recovery.store import RecoveryStore
+from recovery_support import SyntheticRecoveryStore as RecoveryStore
 from agent.recovery.lifecycle import CredentialLifecycle
 from agent.vault import VaultClient
 from pydantic import SecretStr

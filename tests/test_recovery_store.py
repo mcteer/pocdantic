@@ -146,7 +146,9 @@ def test_pruning_resolved_only_and_receipt_reservation(recovery_store):
                 updated_at=now() - timedelta(days=8) if index == 0 else now(),
             )
         )
-    full = Journal.model_validate(journal.model_dump() | {"attempts": tuple(attempts)})
+    full = Journal.model_validate(
+        journal.model_dump() | {"schema_version": 1, "attempts": tuple(attempts)}
+    )
     pruned = recovery_store._prune(full, reserve=True)
     assert len(pruned) == 999 and attempts[0] not in pruned
     assert len(canonical(full.model_copy(update={"attempts": pruned}))) < 2 * 1024 * 1024 - 16384
@@ -183,7 +185,7 @@ def test_workspace_lifetime_contention_and_effect_independence(recovery_store):
 def test_explicit_check_prunes_expired_terminal_receipts_only(recovery_store):
     from datetime import timedelta
 
-    from agent.recovery.models import Journal, Receipt, now
+    from agent.recovery.models import Receipt, now
 
     with recovery_store.effect() as owner:
         item = recovery_store.begin(owner)
@@ -206,7 +208,7 @@ def test_explicit_check_prunes_expired_terminal_receipts_only(recovery_store):
     old = resolved.model_copy(update={"updated_at": now() - timedelta(days=8)})
     with recovery_store._lock("journal.lock"), recovery_store._directory() as directory:
         recovery_store._write(
-            directory, Journal.model_validate(journal.model_dump() | {"attempts": (old,)})
+            directory, type(journal).model_validate(journal.model_dump() | {"attempts": (old,)})
         )
     recovery_store.prune()
     assert recovery_store.read().attempts == ()

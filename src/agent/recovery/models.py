@@ -40,6 +40,7 @@ REASONS = {
     "recovery_access_denied": ("recovery", "contact_operator"),
     "recovery_busy": ("recovery", "wait"),
     "recovery_capacity": ("storage", "resolve_incidents"),
+    "recovery_migration_required": ("storage", "migrate_recovery"),
     "diagnostics_busy": ("connection", "wait"),
 }
 
@@ -239,6 +240,7 @@ class OperationalView(Contract):
     reason_code: str | None = None
     next_action: str | None = None
     incidents: tuple[Summary, ...] = ()
+    containment: dict | None = None
 
     @model_validator(mode="after")
     def mapping(self):
@@ -249,3 +251,59 @@ class OperationalView(Contract):
         elif self.reason_code not in REASONS or self.next_action != REASONS[self.reason_code][1]:
             raise ValueError("recovery_evidence_invalid")
         return self
+
+
+class LegacyOwnership(Private):
+    """A preserved historical attempt whose owner cannot safely be inferred."""
+
+    kind: Literal["legacy_unattributed"] = "legacy_unattributed"
+
+
+class BoundOwnership(Private):
+    """Trusted immutable attribution recorded in the acquisition-intent transaction."""
+
+    kind: Literal["bound"] = "bound"
+    root_run_id: UUID
+    request_id: UUID
+    workload_definition: Annotated[str, Field(pattern=r"^[a-z][a-z0-9-]{1,63}$")]
+    generation: Revision
+    issuer: Annotated[str, Field(min_length=1, max_length=2048)]
+    subject: Annotated[str, Field(min_length=1, max_length=256)]
+
+
+class AttemptV2(Attempt):
+    """Version-two attempt; ownership is mandatory and private."""
+
+    schema_version: Literal[2] = 2
+    ownership: Annotated[BoundOwnership | LegacyOwnership, Field(discriminator="kind")]
+
+    @field_validator("schema_version", mode="before")
+    @classmethod
+    def version(cls, value):
+        """Require exact v2 while nested receipt/ownership contracts retain v1."""
+        if type(value) is not int or value != 2:
+            raise ValueError("recovery_storage_error")
+        return value
+
+
+class JournalV2(Journal):
+    """Version-two snapshot using the unchanged independent anchor."""
+
+    schema_version: Literal[2] = 2
+    attempts: tuple[AttemptV2, ...] = Field(default=(), max_length=1000)
+
+    @field_validator("schema_version", mode="before")
+    @classmethod
+    def version(cls, value):
+        """Reject coercion before versioned snapshot dispatch."""
+        if type(value) is not int or value != 2:
+            raise ValueError("recovery_storage_error")
+        return value
+
+
+def parse_journal(data):
+    """Read v1 for cleanup compatibility or v2 for prospective ownership."""
+    version = data.get("schema_version")
+    if type(version) is not int or version not in (1, 2):
+        raise ValueError("recovery_storage_error")
+    return (JournalV2 if version == 2 else Journal).model_validate(data)

@@ -123,9 +123,7 @@ def test_ambiguous_foreign_or_generic_records_rejected(recovery_store, damage):
 def test_completed_sync_cleanup_requires_acquisition_link(recovery_store):
     item = unresolved(recovery_store)
     acquisition = pair(recovery_store, item)
-    from agent.recovery.models import Attempt
-
-    bound = Attempt.model_validate(
+    bound = type(item).model_validate(
         item.model_dump() | {"lease_handle": "database/creds/read/native"}
     )
     cleanup = pair(recovery_store, bound, cleanup=True)

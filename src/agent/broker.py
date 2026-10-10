@@ -62,6 +62,8 @@ class DatabaseBroker:
     recovery_store: object = field(default=None, repr=False)
     effect_owner: object = field(default=None, repr=False)
 
+    run_guard: object = field(default=None, repr=False)
+
     http: httpx.AsyncClient | None = field(default=None, repr=False)
 
     def __post_init__(self):
@@ -94,6 +96,11 @@ class DatabaseBroker:
         """Read one record through verified delegation, rejecting incomplete configuration."""
         from .recovery.store import RecoveryStore
 
+        if self.run_guard is None:
+            from .response.models import ResponseError
+
+            raise ResponseError("response_uninitialized")
+        self.run_guard.check()
         store = self.recovery_store or RecoveryStore(self.settings)
         ownership = nullcontext(self.effect_owner) if self.effect_owner else store.effect()
         try:
@@ -105,7 +112,10 @@ class DatabaseBroker:
                     from .recovery.store import RecoveryError
 
                     raise RecoveryError(unfinished[0].reason_code)
-                return await self._read(record_id, store, owner)
+                from .recovery.workers import descriptor_scope
+
+                with descriptor_scope(owner.fd):
+                    return await self._read(record_id, store, owner)
         except SecurityError as error:
             self.observe("denied:" + str(error))
             raise
@@ -133,6 +143,13 @@ class DatabaseBroker:
             principal = await user_verifier.verify(self.subject_token)
             if principal.subject != self.subject or "database:read" not in principal.scopes:
                 raise SecurityError("database_subject_invalid")
+            self.run_guard.check()
+            if (principal.issuer, principal.subject) != (
+                self.run_guard.binding.issuer,
+                self.run_guard.binding.subject,
+            ):
+                raise SecurityError("database_subject_invalid")
+            owner.binding = self.run_guard.ownership()
             self.observe("subject_verified")
             operation_observer = self.operation_observer
 
@@ -155,7 +172,9 @@ class DatabaseBroker:
                 return None
 
             actor_binding = begin_identity()
+            self.run_guard.check()
             actor = await oauth.client_credentials()
+            self.run_guard.check()
             actor_claims = await JWTVerifier(
                 oauth, s.actor_audience or s.oauth_client_id, token_typ=s.oauth_access_token_typ
             ).verify_claims(actor.access_token)
@@ -165,19 +184,24 @@ class DatabaseBroker:
                 raise SecurityError("database_actor_invalid")
             if actor_binding:
                 operation_observer.finish_operation(actor_binding)
+            self.run_guard.check()
             self.observe("actor_verified")
             verifier = JWTVerifier(oauth, s.vault_audience, token_typ=s.oauth_access_token_typ)
 
-            async def delegated(details):
+            async def delegated(details, *, cleanup=False):
                 """Exchange and verify a token for the exact authorization details
                 supplied.
                 """
+                if not cleanup:
+                    self.run_guard.check()
                 exchange_binding = begin_identity()
                 exchanged = await oauth.exchange_details(
                     self.subject_token, actor.access_token, details, s.vault_audience
                 )
                 claims = await verifier.verify_claims(exchanged.access_token)
                 validate_delegation(claims, self.subject, actor_claims, details)
+                if not cleanup:
+                    self.run_guard.check()
                 if exchange_binding:
                     operation_observer.finish_operation(exchange_binding)
                 return exchanged.access_token
@@ -192,6 +216,7 @@ class DatabaseBroker:
             ]
             read_token = await delegated(read_details)
             self.observe("read_delegation_verified")
+            self.run_guard.check()
             from .recovery.lifecycle import CredentialLifecycle
 
             vault = VaultClient(
@@ -199,6 +224,7 @@ class DatabaseBroker:
                 s.vault_namespace,
                 http,
                 operation_observer=self.operation_observer,
+                credential_guard=self.run_guard,
                 credential_lifecycle=CredentialLifecycle(
                     store,
                     owner,
@@ -229,16 +255,18 @@ class DatabaseBroker:
                         "allowed_parameters": {"lease_id": [lease_id], "sync": [True]},
                     }
                 ]
-                cleanup_token = await delegated(cleanup_details)
+                cleanup_token = await delegated(cleanup_details, cleanup=True)
                 self.observe("cleanup_delegation_verified")
                 await vault.revoke(cleanup_token, lease_id)
 
+            self.run_guard.check()
             async with vault.credentials(
                 read_token, s.vault_read_path, revoke=revoke, cleanup_timeout=self.cleanup_timeout
             ) as lease:
                 self.observe("lease_acquired")
                 if operation_observer:
                     operation_observer.record("database", "attempted", operation_ref=uuid4())
+                self.run_guard.check()
                 rows = await read_postgres(
                     lease,
                     host=s.database_host,

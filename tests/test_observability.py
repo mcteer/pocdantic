@@ -139,3 +139,24 @@ async def test_post_call_native_binding_validation_cannot_skip_cleanup():
         ).credentials(SecretStr("synthetic"), "database/creds/read"):
             pass
     assert calls == ["GET", "PUT"] and observer.failed
+
+
+def test_response_observer_only_closed_action_labels():
+    """Response tracing never accepts incident identity or a provider's free text."""
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    from agent.observability import response_action
+
+    recorded = []
+
+    class Tracer:
+        def start_as_current_span(self, name, *, attributes):
+            recorded.append((name, attributes))
+            return nullcontext()
+
+    telemetry = SimpleNamespace(provider=SimpleNamespace(get_tracer=lambda _: Tracer()))
+    response_action(telemetry, "revoke_exact", "confirmed")
+    assert recorded == [
+        ("response", {"response_action": "revoke_exact", "response_status": "confirmed"})
+    ]
