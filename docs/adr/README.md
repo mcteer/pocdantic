@@ -12,6 +12,8 @@ requirements. Owner: maintainer.
 
 | [0006](0006-signed-in-workflow.md) | Local signed-in workspace and exact-action approval retry |
 
+| [0007](0007-operational-recovery.md) | Durable acquisition tracking and exact operator recovery |
+
 Use the next sequential number for a new record. Include status, date, context,
 decision, alternatives and consequences. Accepted decisions remain historical:
 supersede them with a new ADR and link both records rather than rewriting history.

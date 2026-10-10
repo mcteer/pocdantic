@@ -91,3 +91,11 @@ pre {
   margin:8px;
   padding:18px}
 }
+
+/* Operational status remains visible while signed out; instructions wrap on small screens. */
+#operations-status,#recovery-guidance,#incidents,#diagnostic-checks {
+  overflow-wrap:anywhere}
+details {
+  margin-top:16px}
+summary {
+  cursor:pointer}

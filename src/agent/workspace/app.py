@@ -59,6 +59,7 @@ def create_workspace_app(
     http_transport=None,
     database_reader_factory=None,
     approval_backend=None,
+    recovery_store=None,
 ):
     """Build the loopback workspace with isolated sessions and one bounded run manager.
 
@@ -75,14 +76,31 @@ def create_workspace_app(
     telemetry = configure_telemetry(config)
     runtime = Runtime(config, model=model or selected_model(config), telemetry=telemetry)
     store = SessionStore()
+    from agent.recovery.store import RecoveryStore
+    from agent.workspace.diagnostics import Diagnostics
+
+    recovery_store = recovery_store or RecoveryStore(config)
+    diagnostics = Diagnostics(config, recovery_store, transport=http_transport)
+    recovery_store.workspace_required = True
 
     @asynccontextmanager
     async def lifespan(app):
         """Own the HTTP client, auth manager, expiry timer, and orderly session shutdown."""
+        try:
+            recovery_store.claim_workspace()
+            recovery_store.normalize()
+        except SecurityError as error:
+            # A second initialized workspace cannot start. Missing/damaged state remains
+            # visible so an operator can inspect it, and effects still fail closed.
+            if str(error) == "recovery_busy":
+                recovery_store.release_workspace()
+                raise
         async with httpx.AsyncClient(
             timeout=15, follow_redirects=False, trust_env=False, transport=http_transport
         ) as http:
             app.state.auth = WorkspaceAuth(config, http, origin)
+            app.state.diagnostics = diagnostics
+            app.state.recovery = recovery_store
             app.state.store = store
             app.state.manager = RunsManager(
                 runtime,
@@ -90,6 +108,7 @@ def create_workspace_app(
                 store,
                 database_reader_factory=database_reader_factory,
                 approval_backend=approval_backend,
+                recovery_store=recovery_store,
             )
 
             async def expire():
@@ -105,6 +124,8 @@ def create_workspace_app(
                 timer.cancel()
                 await asyncio.gather(timer, return_exceptions=True)
                 await store.shutdown()
+                await diagnostics.shutdown()
+                recovery_store.release_workspace()
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(Boundary, origin=origin)
@@ -131,6 +152,19 @@ def create_workspace_app(
             "workspace_unavailable": 503,
             "identity_unavailable": 503,
         }.get(value.code, 400)
+        if value.code in {"diagnostics_busy", "recovery_busy"}:
+            status = 409
+        elif value.code.startswith("recovery_") or value.code in {
+            "acquisition_uncertain",
+            "cleanup_unconfirmed",
+        }:
+            status = 503
+        elif value.code == "request_forbidden" and request.url.path in {
+            "/workspace/operations",
+            "/workspace/diagnostics",
+            "/workspace/recovery/check",
+        }:
+            status = 403
         return JSONResponse({"error": value.model_dump()}, status_code=status)
 
     @app.exception_handler(RequestValidationError)
@@ -214,6 +248,10 @@ def create_workspace_app(
                 return JSONResponse(
                     {"error": WorkflowError.of("capacity_exceeded").model_dump()}, status_code=429
                 )
+        try:
+            recovery_store.claim_workspace()
+        except SecurityError:
+            pass
         signed = getattr(current, "state", None) == "active"
         code = current.login_error
         current.login_error = None
@@ -242,6 +280,66 @@ def create_workspace_app(
         response.set_cookie(cookie_name, current.cookie, httponly=True, samesite="lax", path="/")
         return response
 
+    def operations(request):
+        """Read aggregate state without refresh or idle touch; disclose only owned incidents."""
+        current = context(request)
+        if current is None:
+            raise SecurityError("request_forbidden")
+        try:
+            recovery_store.claim_workspace()
+        except SecurityError:
+            pass
+        signed = getattr(current, "state", None) == "active"
+        manager = app.state.manager
+        owned = set().union(*(job.incidents for job in current.jobs.values())) if signed else set()
+        view = recovery_store.status(
+            authentication=signed, owned=owned, active_work=manager.owner is not None
+        )
+        latest = diagnostics.latest
+        connection = "unchecked"
+        if latest is not None:
+            network = [c for c in latest.checks if c.check_id in {"identity", "vault", "database"}]
+            connection = (
+                "inconclusive"
+                if latest.stale or any(c.state in {"unavailable", "inconclusive"} for c in network)
+                else "observed"
+                if all(c.state == "observed" for c in network)
+                else "blocked"
+            )
+        return view.model_copy(update={"connection": connection})
+
+    @app.get("/workspace/operations")
+    async def operational_view(request: Request):
+        """Return separate authentication, connection observations, and durable recovery status."""
+        return operations(request).model_dump(mode="json")
+
+    @app.post("/workspace/diagnostics")
+    async def check_connection(request: Request):
+        """Run one CSRF-protected read-only check, including for a signed-out bootstrap context."""
+        mutation(request)
+        await body(request, EmptyRequest)
+        view = operations(request)
+        return (
+            await diagnostics.check(
+                authentication=view.authentication, last_failure=app.state.manager.last_failure
+            )
+        ).model_dump(mode="json")
+
+    @app.post("/workspace/recovery/check")
+    async def check_recovery(request: Request):
+        """Observe durable closure without restoring authority or changing old jobs."""
+        mutation(request)
+        await body(request, EmptyRequest)
+        # Missing/unsafe state remains a safe projection. Contention is an explicit
+        # 409; housekeeping never supplies cleanup proof or changes user authority.
+        try:
+            recovery_store.prune()
+        except SecurityError as error:
+            if str(error) == "recovery_busy":
+                raise
+        app.state.manager.check_recovery()
+        return operations(request).model_dump(mode="json")
+
     @app.post("/auth/login")
     async def login(request: Request):
         """Start one CSRF-protected login attempt when the workspace can admit
@@ -254,7 +352,7 @@ def create_workspace_app(
         current = mutation(request)
         await body(request, EmptyRequest)
         manager = app.state.manager
-        if manager and manager.busy:
+        if manager and manager.owner is not None:
             raise SecurityError("workspace_busy")
         if hasattr(current, "state"):
             store.close(current)

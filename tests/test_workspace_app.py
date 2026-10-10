@@ -230,3 +230,39 @@ def test_workspace_budget_is_checked_locally(workspace_settings):
                 workspace_settings.model_copy(update={"timeout_seconds": timeout}),
                 model=TestModel(call_tools=[]),
             )
+
+
+async def test_operational_routes_require_bootstrap_and_csrf(workspace_settings, identity_provider):
+    app = create_workspace_app(
+        workspace_settings,
+        model=TestModel(call_tools=[]),
+        http_transport=httpx.MockTransport(identity_provider.handle),
+    )
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1:8000"
+        ) as http,
+    ):
+        assert (await http.get("/workspace/operations")).status_code == 403
+        view = (await http.get("/workspace/session")).json()
+        assert (await http.get("/workspace/operations")).json()["authentication"] is False
+        assert (
+            await http.post(
+                "/workspace/recovery/check",
+                json={"schema_version": 1},
+                headers={"Origin": "http://127.0.0.1:8000"},
+            )
+        ).status_code in {400, 403}
+        headers = {"Origin": "http://127.0.0.1:8000", "X-CSRF-Token": view["csrf_token"]}
+        response = await http.post(
+            "/workspace/recovery/check", json={"schema_version": 1}, headers=headers
+        )
+        assert response.status_code == 200 and response.json()["incidents"] == []
+        assert (
+            await http.post(
+                "/workspace/diagnostics",
+                json={"schema_version": 1, "url": "https://evil.example"},
+                headers=headers,
+            )
+        ).status_code == 400

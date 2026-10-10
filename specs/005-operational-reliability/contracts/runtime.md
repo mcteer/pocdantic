@@ -1,6 +1,6 @@
 # Runtime contracts: Operational reliability
 
-Status: planned interfaces; commands/routes below do not exist until implementation.
+Status: implemented interfaces; validation is recorded in validation.md.
 No authentication lifetime or existing task/retry ownership contract changes.
 
 ## Browser routes

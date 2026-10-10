@@ -8,10 +8,12 @@ agent client acting for them. Authorization details describe the exact provider 
 and operations requested, rather than asking for a general-purpose Vault token.
 """
 
+import json
 import re
 from collections.abc import Callable
 from contextlib import nullcontext
 from dataclasses import dataclass, field
+from functools import partial
 from uuid import uuid4
 
 import httpx
@@ -37,7 +39,13 @@ def validate_delegation(claims: dict, subject: str, actor: dict, details: list[d
         or act.get("sub") != actor["sub"]
         or act.get("iss", actor["iss"]) != actor["iss"]
         or "act" in act
-        or claims.get("authorization_details") != details
+        or json.dumps(
+            claims.get("authorization_details"),
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        != json.dumps(details, sort_keys=True, separators=(",", ":"), allow_nan=False)
     ):
         raise SecurityError("delegation_claims_invalid")
 
@@ -51,8 +59,17 @@ class DatabaseBroker:
 
     operation_observer: object = field(default=None, repr=False)
     cleanup_timeout: float = 30
+    recovery_store: object = field(default=None, repr=False)
+    effect_owner: object = field(default=None, repr=False)
 
     http: httpx.AsyncClient | None = field(default=None, repr=False)
+
+    def __post_init__(self):
+        """Keep one shared store instance so durability failures remain latched across calls."""
+        if self.recovery_store is None:
+            from .recovery.store import RecoveryStore
+
+            object.__setattr__(self, "recovery_store", RecoveryStore(self.settings))
 
     def observe(self, stage: str) -> None:
         """Publish a bounded lifecycle stage to the optional trusted observer callback."""
@@ -75,13 +92,25 @@ class DatabaseBroker:
 
     async def __call__(self, record_id: int) -> list[dict]:
         """Read one record through verified delegation, rejecting incomplete configuration."""
+        from .recovery.store import RecoveryStore
+
+        store = self.recovery_store or RecoveryStore(self.settings)
+        ownership = nullcontext(self.effect_owner) if self.effect_owner else store.effect()
         try:
-            return await self._read(record_id)
+            with ownership as owner:
+                owner.require(store)
+                journal = store.read()
+                unfinished = [a for a in journal.attempts if a.state != "resolved"]
+                if unfinished:
+                    from .recovery.store import RecoveryError
+
+                    raise RecoveryError(unfinished[0].reason_code)
+                return await self._read(record_id, store, owner)
         except SecurityError as error:
             self.observe("denied:" + str(error))
             raise
 
-    async def _read(self, record_id: int) -> list[dict]:
+    async def _read(self, record_id: int, store, owner) -> list[dict]:
         """Exchange human-plus-actor authority, acquire a lease, and read within its
         lifetime.
 
@@ -163,17 +192,27 @@ class DatabaseBroker:
             ]
             read_token = await delegated(read_details)
             self.observe("read_delegation_verified")
+            from .recovery.lifecycle import CredentialLifecycle
+
             vault = VaultClient(
-                s.vault_addr, s.vault_namespace, http, operation_observer=self.operation_observer
+                s.vault_addr,
+                s.vault_namespace,
+                http,
+                operation_observer=self.operation_observer,
+                credential_lifecycle=CredentialLifecycle(
+                    store,
+                    owner,
+                    self.operation_observer,
+                    on_completed=partial(self.observe, "lease_revoked"),
+                ),
             )
 
             async def revoke(lease_id):
                 """Validate the lease handle and obtain exact-lease authority for
                 revocation.
 
-                The provider response acknowledges the revoke request; it is not an
-                independent
-                check that the database has finished removing the credential.
+                Require synchronous provider completion. Publish cleanup completion
+                only after the lifecycle commits its durable receipt.
                 """
                 prefix = s.vault_read_path + "/"
                 if not lease_id.startswith(prefix) or not re.fullmatch(
@@ -186,14 +225,13 @@ class DatabaseBroker:
                         "type": "vault:path_access",
                         "path": "sys/leases/revoke",
                         "capabilities": ["update"],
-                        "required_parameters": ["lease_id"],
-                        "allowed_parameters": {"lease_id": [lease_id]},
+                        "required_parameters": ["lease_id", "sync"],
+                        "allowed_parameters": {"lease_id": [lease_id], "sync": [True]},
                     }
                 ]
                 cleanup_token = await delegated(cleanup_details)
                 self.observe("cleanup_delegation_verified")
                 await vault.revoke(cleanup_token, lease_id)
-                self.observe("lease_revoked")
 
             async with vault.credentials(
                 read_token, s.vault_read_path, revoke=revoke, cleanup_timeout=self.cleanup_timeout

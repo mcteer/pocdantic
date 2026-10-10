@@ -21,7 +21,7 @@ from agent.workspace.app import create_workspace_app
 
 
 @pytest.fixture
-def workspace_browser(workspace_settings, identity_provider, request, monkeypatch):
+def workspace_browser(workspace_settings, identity_provider, request, monkeypatch, tmp_path):
     from playwright.sync_api import sync_playwright
 
     with socket.socket() as probe:
@@ -100,6 +100,10 @@ def workspace_browser(workspace_settings, identity_provider, request, monkeypatc
                 await asyncio.sleep(options["cleanup_delay"])
         return identity_provider.handle(request)
 
+    from agent.recovery.store import RecoveryStore
+
+    recovery = RecoveryStore(config, project=tmp_path)
+    recovery.initialize()
     app = create_workspace_app(
         config,
         port=port,
@@ -107,6 +111,7 @@ def workspace_browser(workspace_settings, identity_provider, request, monkeypatc
         http_transport=httpx.MockTransport(transport),
         database_reader_factory=factory,
         approval_backend=backend,
+        recovery_store=recovery,
     )
     app.state.test_counts = counts
     server = uvicorn.Server(
@@ -120,6 +125,8 @@ def workspace_browser(workspace_settings, identity_provider, request, monkeypatc
         )
     )
     thread = threading.Thread(target=server.run, daemon=True)
+    app.state.test_server = server
+    app.state.test_thread = thread
     thread.start()
     deadline = time.monotonic() + 10
     while not server.started:

@@ -4,6 +4,7 @@ Generated evidence remains private even if placed inside an otherwise allowed tr
 The historical package path remains eligible only for immutable Git-history checks.
 """
 
+import json
 from pathlib import PurePosixPath
 
 ROOT_FILES = {
@@ -25,6 +26,9 @@ def generated_private(name: str) -> bool:
     p = PurePosixPath(name)
     if p.name in {
         "run.json",
+        "anchor.json",
+        "state.json",
+        "recovery-receipt.json",
         "events.jsonl",
         "bindings.jsonl",
         "delivery.json",
@@ -39,8 +43,54 @@ def generated_private(name: str) -> bool:
     }:
         return True
     return p.suffix in {".json", ".md", ".raw", ".jsonl"} and p.name.startswith(
-        ("source-", "artifact-", "observation-", "review-", "report-", "transaction-", "closeout-")
+        (
+            "source-",
+            "artifact-",
+            "observation-",
+            "review-",
+            "report-",
+            "transaction-",
+            "closeout-",
+            "recovery-receipt-",
+        )
     )
+
+
+def private_content(name: str, data: bytes) -> bool:
+    """Reject intact private recovery/native JSON even after its filename is changed.
+
+    Inspect only data artifacts, so maintained Python tests may contain synthetic native
+    examples. The detector complements fixed private-path and credential-value checks.
+    """
+    if PurePosixPath(name).suffix not in {".json", ".jsonl"}:
+        return False
+    try:
+        values = [json.loads(data)] if data.lstrip().startswith((b"{", b"[")) else []
+    except (ValueError, UnicodeError, RecursionError):
+        try:
+            values = [json.loads(line) for line in data.splitlines() if line.strip()]
+        except (ValueError, UnicodeError, RecursionError):
+            return False
+    pending = list(values)
+    while pending:
+        value = pending.pop()
+        if isinstance(value, list):
+            pending.extend(value)
+        elif isinstance(value, dict):
+            if (
+                {"environment_digest", "source_instance", "records"} <= value.keys()
+                or {"installation_id", "environment_digest", "attempts"} <= value.keys()
+                or value.get("type") in ("request", "response")
+                and isinstance(value.get("request"), dict)
+                or "lease_id" in value
+                and isinstance(value.get("data"), dict)
+                and {"username", "password"} <= value["data"].keys()
+                or {"incident_id", "operation_id", "source_digests", "environment_digest"}
+                <= value.keys()
+            ):
+                return True
+            pending.extend(value.values())
+    return False
 
 
 def publishable(name: str) -> bool:

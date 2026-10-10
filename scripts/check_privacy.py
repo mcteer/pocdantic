@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
 
-from publish_policy import generated_private, publishable
+from publish_policy import generated_private, private_content, publishable
 
 
 def git(*args, check=True):
@@ -96,6 +96,8 @@ def main():
             failures.append("private path: " + name)
             continue
         data = git("show", ":" + name)
+        if private_content(name, data):
+            failures.append("private recovery/source artifact in: " + name)
         if any(secret in data for secret in secrets):
             failures.append("local credential value in: " + name)
         if re.search(
@@ -114,6 +116,8 @@ def main():
                 if forbidden(name) or not publishable(name):
                     failures.append("private path in history: " + name)
                 data = git("show", revision + ":" + name)
+                if private_content(name, data):
+                    failures.append("private recovery/source artifact in history: " + name)
                 if any(secret in data for secret in secrets):
                     failures.append("local credential in history: " + name)
     if failures:

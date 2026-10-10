@@ -117,3 +117,38 @@ Do not supply a service read token to the runtime for this workflow.
 Live deployment contexts record only explicit non-secret selectors and profile/CA digests.
 Context and closeout files belong beneath ignored `.local/`, alongside raw exports and reviews.
 Moving these generated files into a tracked path is rejected by publication checks.
+
+## Diagnostic targets
+
+Workspace diagnostics use existing settings only: public `OAUTH_DISCOVERY_URL` (or the
+Verify discovery endpoint), unauthenticated `VAULT_ADDR` seal status, and TCP
+`DATABASE_HOST:DATABASE_PORT`. No new environment variables are needed. Browser requests
+cannot supply targets, native handles, evidence paths, or administrative tokens.
+HTTP checks use verified TLS, bounded streamed responses, and no redirects or ambient
+proxy credentials. Production network checks run in isolated, bounded worker processes.
+
+A project administrator can inspect Supabase bans at
+[Database Settings](https://supabase.com/dashboard/project/_/database/settings) after
+selecting the correct project. Provider repair is manual. After repair, connection and
+recovery are checked separately; a reachable endpoint does not establish cleanup proof.
+
+## Recovery configuration
+
+Recovery adds no environment variables. It uses existing database, Vault, OAuth, and
+profile selectors to fingerprint one fixed project-local environment. Credentials are
+excluded from that fingerprint; rotating secrets does not migrate the environment.
+Changing/removing selectors or profile contents cannot bypass an existing incident.
+Restore original selectors before reconciliation; there is no automatic environment reset.
+
+Explicit `agent recover init` creates `.local/recovery/` with 0700 directories and 0600
+files. Keep the anchor, snapshot, and three lock files together. Symlinks, hardlinks,
+wrong owners, unsafe permissions, partial state, and unsupported schemas block use.
+The journal is limited to 1000 attempts/100 unresolved attempts/2 MiB; resolved records
+are retained for at most seven days and can be pruned to reserve receipt capacity.
+Unresolved records are never evicted. One workspace owns an initialized journal; CLI/API
+and an idle operator share its separate effect lock. Sessions and job history stay in
+memory and are lost on restart.
+
+`VAULT_TOKEN` also authorizes an explicitly invoked exact operator cleanup. Ordinary
+runtime delegation never falls back to it. Review the synchronous RAR/ACL migration and
+private evidence format in [Durable recovery](usage.md#durable-recovery).

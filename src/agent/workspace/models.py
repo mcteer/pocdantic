@@ -10,6 +10,7 @@ from uuid import UUID
 
 from pydantic import AwareDatetime, ConfigDict, Field, field_validator, model_validator
 
+from agent.recovery.models import REASONS
 from agent.schemas import StrictModel
 
 ERRORS = {
@@ -39,6 +40,9 @@ ERRORS = {
     "cleanup_failed": ("cleanup", "inspect_cleanup"),
     "interrupted": ("runtime", "new_submission"),
 }
+
+
+ERRORS.update(REASONS)
 
 
 def now():

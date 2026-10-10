@@ -31,10 +31,25 @@ const messages = {
   approval_unavailable: 'Configure and enable the phone integration.',
   retry_unavailable: 'This attempt cannot be retried.',
   cleanup_failed: 'Credential cleanup failed. Resolve it before another attempt.',
-  interrupted: 'Task stopped. Inspect cleanup before starting another task.'
+  interrupted: 'Task stopped. Inspect cleanup before starting another task.',
+  dependency_unreachable: 'The configured service could not be reached. Check its host, port, network, and provider status.',
+  diagnostic_timeout: 'The check timed out. Check provider status and network configuration; no root cause is confirmed.',
+  provider_access_denied: 'The provider denied access. Ask its administrator to verify the configured permissions. Recovery is separate.',
+  acquisition_uncertain: 'Credential issuance is uncertain. An operator must obtain exact native evidence; a healthy connection does not clear it.',
+  cleanup_unconfirmed: 'Credential cleanup is unconfirmed. An operator must revoke the exact recorded lease.',
+  recovery_uninitialized: 'Before first live database use, run uv run agent recover init. Enrollment tracks future attempts only; it does not repair incidents.',
+  recovery_storage_error: 'Recovery storage is unsafe or damaged. Preserve its files; ask the operator to investigate or restore a matching private backup. Do not delete or reinitialize it.',
+  recovery_environment_mismatch: 'Recovery state belongs to different configuration. Restore the original configuration; do not create an empty journal.',
+  recovery_evidence_required: 'Exact native request/response evidence or a known lease is missing. Ask the operator for the matching audit export; unavailable evidence leaves recovery blocked.',
+  recovery_evidence_invalid: 'Recovery evidence did not match this incident. The operator must inspect exact linkage and review.',
+  recovery_access_denied: 'The operator needs authority to revoke this exact lease with synchronous completion.',
+  recovery_busy: 'An active task or cleanup owns recovery. Wait for it to finish.',
+  recovery_capacity: 'Recovery storage is full. Resolve recorded incidents; unresolved records are never discarded.',
+  diagnostics_busy: 'A previous connection check is still running or draining. Wait for it to finish.'
 };
 let session = null, latestJobs = [], currentId = null, pending = null, pendingRetry = null;
 let posting = false, knownBusy = false, lastPoll = 0, polling = false;
+let operational = null, diagnosticReport = null, checking = false, authPosting = false;
 
 /** Show a closed error message and move keyboard focus to its accessible container. */
 function showError(error) {
@@ -64,7 +79,7 @@ async function api(path, body) {
  * Render configuration names and profile options as text, never provider credentials. */
 async function loadSession() {
   session = await api('/workspace/session');
-  $('login').disabled = false;
+  $('login').disabled = authPosting;
   $('session-status').textContent = session.signed_in ? 'Signed in' : 'Sign in to run a task';
   $('login').hidden = session.signed_in;
   $('logout').hidden = !session.signed_in;
@@ -78,15 +93,18 @@ async function loadSession() {
   $('issues').textContent = session.configuration_issues.length ?
     'Optional integrations need configuration: ' + session.configuration_issues.join(', ') : '';
   if (session.login_error) showError(session.login_error);
+  await loadOperations();
+  diagnosticFreshness();
 }
 
 /** Disable conflicting operations and freeze the exact payload of an uncertain submission.
  * "Check submission" resends the same UUID/body for server-side deduplication. */
 function controls(busy) {
-  $('run').disabled = posting || busy;
+  const blocked = operational && !['clear', 'not_configured'].includes(operational.recovery);
+  $('run').disabled = posting || busy || blocked;
   $('task').disabled = posting || !!pending;
   $('profile').disabled = posting || !!pending;
-  $('retry').disabled = posting || busy;
+  $('retry').disabled = posting || busy || blocked;
   $('run').textContent = pending ? 'Check submission' : 'Run';
 }
 
@@ -138,10 +156,13 @@ function history(jobs) {
 /** Read session-owned jobs at most once per second with no overlapping requests.
  * Refresh the session projection after expiry; do not submit or retry effects here. */
 async function poll() {
-  if (!session?.signed_in || polling || Date.now() - lastPoll < 1000) return;
+  if (!session || polling || Date.now() - lastPoll < 1000) return;
   lastPoll = Date.now();
   polling = true;
   try {
+    await loadOperations();
+    diagnosticFreshness();
+    if (!session.signed_in) return;
     latestJobs = (await api('/workspace/runs')).jobs;
     knownBusy = latestJobs.some(job => !terminal.has(job.state));
     history(latestJobs);
@@ -165,12 +186,14 @@ async function pollLoop() {
 
 // Start a bound login attempt, then navigate to its trusted authorization URL.
 $('login').addEventListener('click', async () => {
+  authPosting = true;
   $('login').disabled = true;
   try {
     const data = await api('/auth/login', {schema_version: 1});
     location.assign(data.authorization_url);
   } catch (error) {
     showError(error);
+    authPosting = false;
     $('login').disabled = false;
   }
 });
@@ -246,6 +269,93 @@ $('retry').addEventListener('click', async () => {
   }
 });
 
-// Bootstrap identity/CSRF before the first job read; the recurring loop remains read-only.
+
+
+
+/** Display separate sign-in, connection, and recovery states; never infer cleanup from health. */
+function renderOperations(view) {
+  operational = view;
+  $('operations-status').textContent =
+    'Sign-in: ' + (view.authentication ? 'signed in' : 'sign-in required') +
+    ' · Connection: ' + view.connection + ' · Recovery: ' + view.recovery.replaceAll('_', ' ') +
+    (view.blocked_count ? ' (' + view.blocked_count + ' unresolved)' : '') +
+    (view.active_work ? ' · Work active' : '');
+  $('recovery-guidance').textContent = view.reason_code ? messages[view.reason_code] || '' :
+    'Connection checks do not start tasks or change sign-in. Recovery never replays an earlier task.';
+  $('incidents').replaceChildren(...view.incidents.map(incident => {
+    const li = document.createElement('li');
+    const command = incident.next_action === 'recover_exact_lease' ?
+      'uv run agent recover revoke --incident ' + incident.incident_id :
+      'uv run agent recover status';
+    li.textContent = 'Incident ' + incident.incident_id + ' · ' + incident.stage + ': ' +
+      messages[incident.reason_code] + ' Operator command: ' + command;
+    return li;
+  }));
+  if (view.blocked_count && !view.incidents.length) {
+    $('recovery-guidance').textContent += ' Operator: run uv run agent recover status to list incident references.';
+  }
+  $('check-connection').disabled = !session || checking;
+  $('check-recovery').disabled = !session || checking;
+  $('login').disabled = authPosting || view.active_work;
+  controls(knownBusy || view.active_work);
+}
+
+/** Reread only local aggregate status; polling never runs a provider diagnostic or recovery effect. */
+async function loadOperations() {
+  renderOperations(await api('/workspace/operations'));
+}
+
+/** Mark old observations stale without performing another provider request. */
+function diagnosticFreshness() {
+  if (!diagnosticReport) return;
+  const stale = Date.now() - Date.parse(diagnosticReport.finished_at) > 60000;
+  $('diagnostic-freshness').textContent = stale ?
+    'Connection observations are stale. Select Check connection for a new check.' :
+    'Connection observations checked just now; transport checks do not prove authorization or cleanup.';
+}
+
+/** Render fixed observations as text. Provider bodies and target addresses never reach this view. */
+function renderDiagnostics(report) {
+  diagnosticReport = report;
+  const observed = {
+    configuration: 'Local configuration checks passed.',
+    identity: 'Public identity discovery responded; user authorization was not tested.',
+    vault: 'Vault reports unsealed; credential issuance permission was not tested.',
+    database: 'Database TCP connection succeeded (transport only; no authentication).',
+    sign_in: 'The current session is signed in.', recovery: 'No recovery block was reported.'
+  };
+  $('diagnostic-checks').replaceChildren(...report.checks.map(check => {
+    const li = document.createElement('li');
+    li.textContent = check.check_id + ' · ' + check.category + ' · ' + check.state + ': ' +
+      (check.reason_code ? messages[check.reason_code] : check.state === 'observed' ?
+        observed[check.check_id] : 'The check was inconclusive; no root cause is confirmed.');
+    return li;
+  }));
+  diagnosticFreshness();
+}
+
+// Both checks require completed cookie/CSRF bootstrap and never submit or replay a task.
+$('check-connection').addEventListener('click', async () => {
+  if (!session || checking) return;
+  checking = true;
+  renderOperations(operational);
+  try {
+    renderDiagnostics(await api('/workspace/diagnostics', {schema_version: 1}));
+    await loadOperations();
+  } catch (error) { showError(error); }
+  finally { checking = false; if (operational) renderOperations(operational); }
+});
+
+$('check-recovery').addEventListener('click', async () => {
+  if (!session || checking) return;
+  checking = true;
+  renderOperations(operational);
+  try {
+    renderOperations(await api('/workspace/recovery/check', {schema_version: 1}));
+  } catch (error) { showError(error); }
+  finally { checking = false; if (operational) renderOperations(operational); }
+});
+
+// Bootstrap cookie/CSRF before enabling any control; subsequent polling is read-only.
 loadSession().then(poll).catch(showError);
 pollLoop();

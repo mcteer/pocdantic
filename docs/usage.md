@@ -384,3 +384,109 @@ uv run --group browser pytest tests/browser -q
 ~~~
 
 They establish software behavior; live vendor observations remain separate.
+
+## Connection observations and guided repair
+
+Use **Check connection** in the workspace, including while signed out. It checks local
+configuration, public identity discovery, Vault seal status, and a database TCP connection.
+It sends no user/operator credentials and performs no SQL, credential acquisition, or
+provider mutation. A successful TCP connection proves transport reachability only; Vault
+being unsealed proves neither issuance permission nor Vault-to-database connectivity.
+Checks have a ten-second per-check and thirty-second total deadline. Only one request
+can run or drain at a time. Observations become stale after sixty seconds; reload does
+not rerun provider checks. **Check recovery** rereads local durable state separately.
+
+For a Supabase connection failure, a project administrator should open
+[Database Settings](https://supabase.com/dashboard/project/_/database/settings), select
+and verify the project, and inspect **Network bans**. If the relevant client address is
+listed, use **Unban IP** for that address. Expect the entry to disappear, then rerun
+Check connection. This destination is linked by the
+[official troubleshooting guide](https://supabase.com/docs/guides/troubleshooting/error-connection-refused-when-trying-to-connect-to-supabase-database-hwG0Dr).
+A timeout alone does not establish a ban or its cause.
+
+For other providers, ask the integration administrator to verify the configured target,
+port, TLS trust, and provider status. Missing access is a reason to contact that operator,
+not to guess a dashboard menu. A permission failure from an actual credential call is
+reported separately from reachability. Sign in when new work needs user authentication;
+repeated sign-in cannot resolve uncertain credential issuance or cleanup.
+
+Connection checks preserve a valid session and never replay a task. Repairing connectivity
+alone does not clear durable recovery incidents. Do not delete recovery state, retry an
+acquisition automatically, or test intentionally invalid database passwords.
+
+## Durable recovery
+
+With complete live database settings, enroll future attempts once before using the database:
+
+```sh
+uv run agent recover init
+uv run agent recover status
+```
+
+These commands do not sign in or contact providers. Enrollment starts prospective
+tracking in owner-only `.local/recovery/`. It does not resolve the historical unknown
+attempts from 004 or the native evidence gaps from 003. Missing enrollment blocks live
+database use. Partial, damaged, moved, or mismatched state blocks use; restore the
+original private files/configuration with the integration administrator. There is no
+reset command. Do not delete state or initialize again to bypass an incident.
+
+An active workspace owns its lifetime lock; an idle operator can reconcile an incident
+without restarting it. Acquisition and cleanup share an effect lock with CLI/API reads.
+Intent is committed before issuance, the exact handle before SQL, and a terminal receipt
+before cleanup is reported complete. Lost responses remain blocked, including 401/403
+without native non-issuance proof. Offline demo/validation remain independent.
+
+For a reported known-handle incident, an authorized operator supplies existing
+`VAULT_TOKEN` privately through the process environment or local configuration, then runs:
+
+```sh
+uv run agent recover revoke --incident INCIDENT_UUID
+```
+
+This sends exactly one synchronous revoke to the configured Vault instance and namespace.
+It cannot issue credentials, read SQL, revoke a prefix, force revocation, or retry
+implicitly. Missing authority: obtain a token permitted to update `sys/leases/revoke`
+for the exact incident handle from the Vault administrator; do not paste it into the
+browser. Denied/timeout/queued responses leave the incident blocked. A completed command
+is a verified no-op when repeated. Production cleanup runs in a terminable private worker;
+the effect lock remains held through worker termination and receipt persistence.
+
+For unknown issuance, ask the Vault integration administrator for the native acquisition
+request/response pair with the incident operation's **X-Correlation-Id**, request ID,
+credential path, namespace, explicit policy decision, and un-HMACed lease ID. Do not
+repeat acquisition to obtain evidence. If these fields/export access are unavailable,
+recovery stays blocked: the administrator must provide supported native linkage.
+A generic error, empty lease field, healthy database, or operator acknowledgment is
+insufficient. Only an explicit pre-execution ACL denial proves non-issuance.
+
+Keep exports in a 0700 folder beneath ignored `.local/`, with 0600 regular files.
+The supported private JSON envelope has exactly `schema_version: 1`,
+`environment_digest` (the journal's current private fingerprint), `source_instance`
+(the configured Vault address), and `records` (original native audit objects). JSONL
+uses the same three-field header first, followed by native records. This provenance is
+operator-attested, not a provider signature. Review the actual source instance and
+export integrity before using a non-sensitive reviewer label. Never publish this wrapper.
+The verifier follows [Vault's native pair IDs](https://developer.hashicorp.com/vault/docs/audit/schema).
+
+```sh
+uv run agent recover import --incident INCIDENT_UUID --source .local/input/acquisition.json --reviewer operator
+# Include a second --source only for the matching completed sync-cleanup pair.
+```
+
+Limits: two files, 2 MiB each, 200 native records total, depth 16. Duplicate keys,
+ambiguous pairs, foreign provenance, HMAC-protected linking fields, conflicts, and stale
+receipt revisions are rejected. Raw exports stay outside the journal. A lease-identification
+receipt binds the handle but remains blocked until exact cleanup. Completed synchronous
+cleanup or supported non-issuance evidence resolves it; imports never promote acceptance.
+Use **Check recovery** afterward. It observes durable closure without renewing credentials,
+changing old results, or replaying work. A valid session can submit a new task explicitly;
+an expired/signed-out session must sign in normally.
+
+Before live cleanup, the integration administrator must update the installed RAR schema
+and example Vault ACL to permit **boolean** `sync=true`. The cleanup authorization details
+must have `required_parameters: ["lease_id", "sync"]` and
+`allowed_parameters: {"lease_id": ["exact handle"], "sync": [true]}` at
+`sys/leases/revoke` with `capabilities: ["update"]`. Numeric `1`, string `"true"`, false,
+omitted sync, extra rights, or widened handle lists are rejected. Review
+`config/vault-path-access.schema.json` and `scripts/provision_database.py`; implementation
+and CI do not apply these provider changes. Existing policies that reject sync fail closed.

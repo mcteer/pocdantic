@@ -225,3 +225,76 @@ async def test_token_snapshot_is_immutable_during_read(workspace_settings, ident
         assert seen == [original]
         assert job.view.state == "completed"
         assert "replacement-private" not in job.view.model_dump_json()
+
+
+@pytest.mark.parametrize("authority", ["active", "reauth_required", "closed"])
+async def test_recovery_clears_only_durable_block_without_restoring_session(
+    workspace_settings, identity_provider, recovery_store, authority
+):
+    from agent.recovery.models import Receipt
+    from agent.workspace.models import TaskSubmission
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(identity_provider.handle)) as http:
+        auth, store, session = await login(workspace_settings, identity_provider, http)
+        manager = RunsManager(
+            Runtime(workspace_settings, model=TestModel(call_tools=[])),
+            auth,
+            store,
+            recovery_store=recovery_store,
+        )
+        job = await manager.submit(
+            session, TaskSubmission(submission_id=uuid4(), task="old", profile="ticket-reader")
+        )
+        await manager.worker
+        old = job.view.model_dump()
+        with recovery_store.effect() as owner:
+            item = recovery_store.begin(owner)
+            item = recovery_store.update(item.incident_id, item.revision, state="unresolved")
+        job.incidents.add(item.incident_id)
+        manager.recovery_incidents.add(item.incident_id)
+        manager.quarantined = True
+        before = len(identity_provider.calls)
+        session.state = authority
+        receipt = Receipt(
+            outcome="not_issued",
+            incident_id=item.incident_id,
+            incident_revision=item.revision,
+            operation_id=item.operation_id,
+            environment_digest=item.environment_digest,
+        )
+        recovery_store.update(
+            item.incident_id,
+            item.revision,
+            state="resolved",
+            resolution="not_issued",
+            receipt=receipt,
+        )
+        manager.check_recovery()
+        assert not manager.quarantined and session.state == authority
+        assert job.view.model_dump() == old and len(identity_provider.calls) == before
+        if authority != "active":
+            with pytest.raises(SecurityError, match="sign_in_required"):
+                await manager.submit(session, TaskSubmission(submission_id=uuid4(), task="new"))
+        else:
+            await manager.submit(session, TaskSubmission(submission_id=uuid4(), task="new"))
+            await manager.worker
+
+
+def test_completed_incidents_leave_quarantine_tracking_before_retention_prunes():
+    from types import SimpleNamespace
+
+    from agent.workspace.runs import MemorySink
+
+    closed, unresolved = uuid4(), uuid4()
+    manager = SimpleNamespace(recovery_incidents={closed, unresolved})
+    job = SimpleNamespace(
+        events=[],
+        reads=0,
+        acquired=1,
+        revoked=0,
+        current_incident=closed,
+        view=SimpleNamespace(cleanup_status="pending"),
+    )
+    MemorySink(manager, job).emit(SimpleNamespace(phase="cleanup", detail="revoked"))
+    assert manager.recovery_incidents == {unresolved}
+    assert job.view.cleanup_status == "revoked"

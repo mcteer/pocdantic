@@ -24,12 +24,15 @@ from .settings import Settings
 from .telemetry import configure_telemetry
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, *, recovery_store=None) -> FastAPI:
     """Build the optional FastAPI service, rejecting missing audience configuration.
 
     The returned app owns one runtime and a lifespan-managed token verifier.
     """
     config = settings or Settings()
+    from .recovery.store import RecoveryStore
+
+    recovery_store = recovery_store or RecoveryStore(config)
     if not config.oauth_audience:
         raise SecurityError("oauth_audience_missing")
     oauth_settings = oauth_config(config)
@@ -77,7 +80,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             request,
             principal,
             database_reader=DatabaseBroker(
-                config, SecretStr(credentials.credentials), principal.subject
+                config,
+                SecretStr(credentials.credentials),
+                principal.subject,
+                recovery_store=recovery_store,
             )
             if config.database_host
             else None,
