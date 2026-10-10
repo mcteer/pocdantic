@@ -321,3 +321,33 @@ async def test_failed_fact_sink_cannot_skip_cleanup():
         async with vault.credentials(SecretStr("token"), "database/creds/read"):
             pass
     assert calls == ["GET", "PUT"] and observer.failed
+
+
+@pytest.mark.parametrize(
+    "status,payload",
+    [
+        (202, {}),
+        (200, {"queued": True}),
+        (200, {"lease_id": "wrong"}),
+        (200, {"sync": False}),
+        (200, {"sync": 1}),
+    ],
+)
+async def test_sync_revoke_rejects_queued_or_contradictory_completion(status, payload):
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(status, json=payload)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        with pytest.raises(SecurityError, match="cleanup_failed"):
+            await VaultClient("https://vault.example", "", http).revoke(
+                SecretStr("private"), "database/creds/read/fixture"
+            )
+    import json
+
+    assert json.loads(requests[0].content) == {
+        "lease_id": "database/creds/read/fixture",
+        "sync": True,
+    }

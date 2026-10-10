@@ -162,3 +162,21 @@ def identity_provider():
             raise AssertionError("Unexpected external request: " + request.url.path)
 
     return Provider()
+
+
+@pytest.fixture
+def recovery_settings(tmp_path):
+    """Use a complete synthetic recovery target with no ambient configuration sources."""
+    from recovery_support import settings
+
+    return settings(tmp_path)
+
+
+@pytest.fixture
+def recovery_store(tmp_path, recovery_settings):
+    """Enroll only an isolated temporary journal; never touch project recovery state."""
+    from agent.recovery.store import RecoveryStore
+
+    store = RecoveryStore(recovery_settings, project=tmp_path)
+    store.initialize()
+    return store

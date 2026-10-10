@@ -1,7 +1,8 @@
 """Trusted Vault HTTP adapter and short-lived PostgreSQL credential lifecycle.
 
 Lease handles and passwords stay private. Cleanup is attempted even when credential
-parsing or the database operation fails; an acknowledged revoke is not backend proof.
+parsing or the database operation fails. Cleanup requests require synchronous completion;
+durable recovery records, when configured, are committed before completion is reported.
 """
 
 import asyncio
@@ -32,7 +33,13 @@ class Lease(BaseModel):
 
 class VaultClient:
     def __init__(
-        self, address: str, namespace: str, http: httpx.AsyncClient, *, operation_observer=None
+        self,
+        address: str,
+        namespace: str,
+        http: httpx.AsyncClient,
+        *,
+        operation_observer=None,
+        credential_lifecycle=None,
     ):
         """Bind the provider address, namespace, HTTP client, and optional private
         observer.
@@ -42,6 +49,7 @@ class VaultClient:
             raise SecurityError("vault_https_required")
         self.address, self.namespace, self.http = address.rstrip("/"), namespace, http
         self.operation_observer = operation_observer
+        self.credential_lifecycle = credential_lifecycle
 
     async def request(
         self, method: str, path: str, token: SecretStr | None = None, body: dict | None = None
@@ -59,9 +67,18 @@ class VaultClient:
         observer = self.operation_observer
         binding = None
         phase = "cleanup" if path == "sys/leases/revoke" else "credential"
+        lifecycle = self.credential_lifecycle
+        operation_id = (
+            lifecycle.item.operation_id
+            if lifecycle and lifecycle.item and phase == "credential"
+            else None
+        )
+        if operation_id:
+            headers["X-Correlation-Id"] = str(operation_id)
         if observer and observer.validation_id and observer.observation_id:
             try:
                 binding = observer.begin_operation(
+                    **({"operation_ref": operation_id} if operation_id else {}),
                     validation_id=observer.validation_id,
                     observation_id=observer.observation_id,
                     phase=phase,
@@ -89,20 +106,35 @@ class VaultClient:
                     )
                     observer.finish_operation(binding)
                 raise SecurityError(f"vault_http_{response.status_code}")
+            if len(response.content) > 262144:
+                raise ValueError("vault_response_size")
             data = response.json() if response.content else {}
             if not isinstance(data, dict):
                 raise ValueError("invalid Vault response")
+            if phase == "cleanup" and (
+                response.status_code not in {200, 204}
+                or data.get("warnings")
+                or data.get("errors")
+                or data.get("queued")
+                or data.get("data")
+                or "sync" in data
+                and data["sync"] is not True
+                or "lease_id" in data
+                and data["lease_id"] != (body or {}).get("lease_id")
+            ):
+                raise SecurityError("cleanup_failed")
             if observer and binding:
                 observer.finish_operation(
                     binding,
                     native_request_id=data.get("request_id"),
                     native_lease_id=data.get("lease_id"),
                 )
-                observer.record(
-                    phase,
-                    "revoked" if phase == "cleanup" else "completed",
-                    operation_ref=binding.operation_ref,
-                )
+                if phase != "cleanup" or lifecycle is None:
+                    observer.record(
+                        phase,
+                        "revoked" if phase == "cleanup" else "completed",
+                        operation_ref=binding.operation_ref,
+                    )
             return data
         except (httpx.HTTPError, ValueError, TypeError):
             raise SecurityError("vault_request_failed") from None
@@ -120,12 +152,8 @@ class VaultClient:
         )
 
     async def revoke(self, token: SecretStr, lease_id: str) -> None:
-        """Submit a lease revocation request and check the provider acknowledgement.
-
-        This endpoint can acknowledge queued revocation; callers needing independent
-        cleanup proof must obtain native evidence separately.
-        """
-        await self.request("PUT", "sys/leases/revoke", token, {"lease_id": lease_id})
+        """Wait for synchronous exact-lease revocation; never accept queued completion."""
+        await self.request("PUT", "sys/leases/revoke", token, {"lease_id": lease_id, "sync": True})
 
     @asynccontextmanager
     async def credentials(
@@ -145,9 +173,19 @@ class VaultClient:
         """
         if not path.startswith("database/creds/"):
             raise SecurityError("vault_credential_path")
+        lifecycle = self.credential_lifecycle
+        if lifecycle:
+            lifecycle.start()
         try:
             result = await self.read(token, path)
         except BaseException as error:
+            if lifecycle:
+                lifecycle.uncertain(
+                    "provider_access_denied"
+                    if isinstance(error, SecurityError)
+                    and str(error) in {"vault_http_401", "vault_http_403"}
+                    else "acquisition_uncertain"
+                )
             if self.operation_observer and not (
                 isinstance(error, SecurityError)
                 and str(error) in {"vault_http_401", "vault_http_403"}
@@ -157,12 +195,16 @@ class VaultClient:
         # Obtain revocation handle first: malformed credentials must still be cleaned up.
         lease_id = result.get("lease_id")
         if not isinstance(lease_id, str) or not lease_id:
+            if lifecycle:
+                lifecycle.uncertain()
             if self.operation_observer:
                 self.operation_observer.fact("credential_uncertain")
             raise SecurityError("vault_lease_missing")
         if self.operation_observer:
             self.operation_observer.record("credential", "acquired")
         try:
+            if lifecycle:
+                lifecycle.acquired(lease_id, result.get("request_id"))
             try:
                 lease = Lease(
                     lease_id=lease_id,
@@ -178,6 +220,8 @@ class VaultClient:
             observer = self.operation_observer
             if observer:
                 observer.fact("cleanup_pending")
+            if lifecycle:
+                lifecycle.pending()
             cleanup = asyncio.create_task(
                 revoke(lease_id) if revoke else self.revoke(token, lease_id)
             )
@@ -218,13 +262,19 @@ class VaultClient:
                         pass
                 if observer:
                     observer.fact("cleanup_failed")
+                if lifecycle:
+                    lifecycle.uncertain("cleanup_unconfirmed")
                 raise SecurityError("cleanup_failed") from None
             try:
                 cleanup.result()
             except Exception:
                 if observer:
                     observer.fact("cleanup_failed")
+                if lifecycle:
+                    lifecycle.uncertain("cleanup_unconfirmed")
                 raise SecurityError("cleanup_failed") from None
+            if lifecycle:
+                lifecycle.completed()
             if interrupted:
                 raise asyncio.CancelledError
 

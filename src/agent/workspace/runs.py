@@ -6,7 +6,7 @@ credential cleanup blocks further admission for this process.
 """
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from uuid import uuid4
 
 from agent.broker import DatabaseBroker
@@ -43,6 +43,10 @@ class Job:
     uncertain: bool = False
     stopped: bool = False
     worker: object = None
+    effect_context: object = None
+    effect_owner: object = None
+    incidents: set = field(default_factory=set)
+    current_incident: object = None
 
 
 class MemorySink:
@@ -66,6 +70,9 @@ class MemorySink:
             job.view.cleanup_status = "pending"
         if event.phase == "cleanup" and event.detail == "revoked":
             job.revoked += 1
+            # This event now follows durable closure. Drop completed quarantine refs
+            # before retention can prune their receipts; keep session history separate.
+            self.manager.recovery_incidents.discard(job.current_incident)
             job.view.cleanup_status = "revoked" if job.revoked == job.acquired else "pending"
 
     def fact(self, name, **private):
@@ -75,7 +82,11 @@ class MemorySink:
         Preserve uncertainty and exact-action retry candidates for the manager’s checks.
         """
         job = self.job
-        if name == "approval_started":
+        if name == "recovery_incident":
+            job.current_incident = private["incident_id"]
+            job.incidents.add(private["incident_id"])
+            self.manager.recovery_incidents.add(private["incident_id"])
+        elif name == "approval_started":
             approval, action, principal = (
                 private["approval"],
                 private["action"],
@@ -124,7 +135,14 @@ class MemorySink:
 
 class RunsManager:
     def __init__(
-        self, runtime, auth, store, *, database_reader_factory=None, approval_backend=None
+        self,
+        runtime,
+        auth,
+        store,
+        *,
+        database_reader_factory=None,
+        approval_backend=None,
+        recovery_store=None,
     ):
         """Bind the runtime, auth/session managers, trusted factories, and single-owner
         state.
@@ -132,8 +150,13 @@ class RunsManager:
         self.runtime, self.auth, self.store = runtime, auth, store
         self.database_reader_factory = database_reader_factory
         self.backend = approval_backend
+        from agent.recovery.store import RecoveryStore
+
+        self.recovery = recovery_store or RecoveryStore(runtime.settings)
         self.owner = None
         self.quarantined = False
+        self.recovery_incidents = set()
+        self.last_failure = None
         self.worker = None
         store.on_close = self.close_session
 
@@ -143,6 +166,27 @@ class RunsManager:
         admission.
         """
         return self.owner is not None or self.quarantined
+
+    def check_recovery(self):
+        """Clear volatile quarantine only when every owned incident has durable closure.
+
+        No job, session, approval, or credentials are modified. Unknown legacy cleanup
+        without incident linkage stays quarantined; storage failure never clears it.
+        """
+        if self.owner is not None or not self.quarantined:
+            return
+        incidents = self.recovery_incidents
+        if not incidents:
+            return
+        try:
+            with self.recovery.effect():
+                journal = self.recovery.read()
+                terminal = {a.incident_id for a in journal.attempts if a.state == "resolved"}
+                if incidents <= terminal and all(a.state == "resolved" for a in journal.attempts):
+                    self.quarantined = False
+                    self.recovery_incidents.clear()
+        except SecurityError:
+            return
 
     def get(self, session, job_id):
         """Return a job only if it belongs to the requesting session."""
@@ -227,6 +271,7 @@ class RunsManager:
         Single ownership prevents concurrent effects; failed admission unwinds reserved
         state. A retry snapshot must still match current identity and policy.
         """
+        self.check_recovery()
         if self.quarantined:
             raise SecurityError("workspace_unavailable")
         if self.owner is not None:
@@ -250,6 +295,22 @@ class RunsManager:
         session.jobs[job.view.job_id] = job
         session.submissions[key] = (payload, job)
         try:
+            from agent.recovery.store import RecoveryError, configured
+
+            if (
+                configured(self.runtime.settings)
+                or self.recovery.root.exists()
+                or self.recovery.root.is_symlink()
+                or self.recovery.established
+            ):
+                if getattr(self.recovery, "workspace_required", False):
+                    self.recovery.claim_workspace()
+                job.effect_context = self.recovery.effect()
+                job.effect_owner = job.effect_context.__enter__()
+                state = self.recovery.read()
+                blocked = [item for item in state.attempts if item.state != "resolved"]
+                if blocked:
+                    raise RecoveryError(blocked[0].reason_code)
             job.snapshot = await self.auth.admit(session)
             if session.state != "active" or job.stopped:
                 raise SecurityError("sign_in_required")
@@ -275,6 +336,9 @@ class RunsManager:
             session.submissions.pop(key, None)
             self.runtime.forget(context.run_id)
             self.owner = None
+            if job.effect_owner:
+                job.effect_context.__exit__(None, None, None)
+                job.effect_owner = None
             raise
 
     async def _execute(self, job, candidate):
@@ -318,8 +382,14 @@ class RunsManager:
                         job.snapshot.access_token,
                         job.snapshot.principal.subject,
                         observer=lambda stage: self._stage(job, stage),
+                        recovery_store=self.recovery,
+                        effect_owner=job.effect_owner,
                     )
                 )
+                if isinstance(reader, DatabaseBroker):
+                    reader = replace(
+                        reader, recovery_store=self.recovery, effect_owner=job.effect_owner
+                    )
                 result = await runtime.run(
                     job.request,
                     job.snapshot.principal,
@@ -397,6 +467,9 @@ class RunsManager:
             runtime.event_sink = NullSink()
             runtime.approval_backend = None
             self.owner = None
+            if job.effect_owner:
+                job.effect_context.__exit__(None, None, None)
+                job.effect_owner = None
 
     def _stage(self, job, stage):
         """Translate trusted broker lifecycle stages without double-counting acquired
@@ -407,6 +480,8 @@ class RunsManager:
             return
         if stage.startswith("denied:"):
             code = stage.partition(":")[2]
+            if code in {"vault_http_401", "vault_http_403"}:
+                self.last_failure = "provider_access_denied"
             job.view.error = WorkflowError.of(self._safe(code))
             if code == "cleanup_failed":
                 job.view.cleanup_status = "failed"

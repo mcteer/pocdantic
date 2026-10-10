@@ -60,6 +60,10 @@ async def execute(args) -> int:
     Runs and batches authenticate before creating trusted adapters. Live probe and
     push-demo commands can issue tokens or phone prompts; demo stays synthetic.
     """
+    if args.command == "recover":
+        from .recovery.commands import execute_recovery
+
+        return await execute_recovery(args)
     if args.command == "validate":
         from .validation.commands import execute_validation
 
@@ -152,6 +156,9 @@ def main() -> None:
     from .validation.commands import add_validation_parser
 
     add_validation_parser(sub)
+    from .recovery.commands import add_recovery_parser
+
+    add_recovery_parser(sub)
     args = parser.parse_args()
     try:
         if args.command == "workspace":

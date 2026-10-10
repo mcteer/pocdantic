@@ -15,7 +15,7 @@ from agent.settings import Settings
 
 
 @pytest.fixture
-def chain(monkeypatch):
+def chain(monkeypatch, tmp_path):
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     jwk = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(key.public_key())) | {"kid": "test"}
     state = {"exchanges": [], "vault": [], "change": {}, "user_change": {}, "actor_change": {}}
@@ -107,11 +107,16 @@ def chain(monkeypatch):
         database_name="postgres",
     )
 
+    from agent.recovery.store import RecoveryStore
+
+    recovery = RecoveryStore(settings, project=tmp_path)
+    recovery.initialize()
+
     def broker():
         token = sign(
             {"sub": "human", "aud": "api", "scope": "database:read"} | state["user_change"]
         )
-        return DatabaseBroker(settings, SecretStr(token), "human")
+        return DatabaseBroker(settings, SecretStr(token), "human", recovery_store=recovery)
 
     return state, broker
 
@@ -125,12 +130,18 @@ async def test_signed_chain_uses_distinct_exact_cleanup_grant(chain):
         "type": "vault:path_access",
         "path": "sys/leases/revoke",
         "capabilities": ["update"],
-        "required_parameters": ["lease_id"],
-        "allowed_parameters": {"lease_id": ["database/creds/poc-readonly/exact.namespace"]},
+        "required_parameters": ["lease_id", "sync"],
+        "allowed_parameters": {
+            "lease_id": ["database/creds/poc-readonly/exact.namespace"],
+            "sync": [True],
+        },
     }
     read, revoke = state["vault"]
     assert read.headers["X-Vault-Token"] != revoke.headers["X-Vault-Token"]
-    assert json.loads(revoke.content) == {"lease_id": "database/creds/poc-readonly/exact.namespace"}
+    assert json.loads(revoke.content) == {
+        "lease_id": "database/creds/poc-readonly/exact.namespace",
+        "sync": True,
+    }
 
 
 @pytest.mark.parametrize(
@@ -277,3 +288,78 @@ async def test_typed_bindings_precede_calls_and_sink_failure_preserves_revoke(ch
     assert next(b for b in vault if b.phase == "credential").finished_at is None
     assert {"identity", "credential", "database", "cleanup"} <= {e.phase for e in events}
     assert observer.failed
+
+
+async def test_uninitialized_broker_blocks_all_provider_requests(chain, tmp_path):
+    from dataclasses import replace
+
+    from agent.recovery.store import RecoveryStore
+
+    state, factory = chain
+    original = factory()
+    other = tmp_path / "new-project"
+    other.mkdir()
+    blocked = replace(original, recovery_store=RecoveryStore(original.settings, project=other))
+    with pytest.raises(SecurityError, match="recovery_uninitialized"):
+        await blocked(1)
+    assert state["exchanges"] == [] and state["vault"] == []
+
+
+@pytest.mark.parametrize("sync", [False, 1, "true", None, [True, False]])
+async def test_cleanup_claim_requires_strict_boolean_sync(chain, sync):
+    state, factory = chain
+    state["cleanup_change"] = {
+        "authorization_details": [
+            {
+                "type": "vault:path_access",
+                "path": "sys/leases/revoke",
+                "capabilities": ["update"],
+                "required_parameters": ["lease_id", "sync"],
+                "allowed_parameters": {
+                    "lease_id": ["database/creds/poc-readonly/exact.namespace"],
+                    "sync": [sync] if not isinstance(sync, list) else sync,
+                },
+            }
+        ]
+    }
+    with pytest.raises(SecurityError):
+        await factory()(1)
+    assert len(state["vault"]) == 1
+
+
+def test_signed_detail_equality_is_type_aware():
+    from agent.broker import validate_delegation
+
+    actor = {"sub": "actor", "iss": "issuer"}
+    expected = [{"allowed_parameters": {"sync": [True]}}]
+    claims = {
+        "sub": "human",
+        "act": actor,
+        "authorization_details": [{"allowed_parameters": {"sync": [1]}}],
+    }
+    with pytest.raises(SecurityError, match="delegation_claims_invalid"):
+        validate_delegation(claims, "human", actor, expected)
+
+
+async def test_no_cleanup_complete_event_before_durable_receipt(chain, monkeypatch):
+    from dataclasses import replace
+
+    from agent.recovery.store import RecoveryError
+
+    state, factory = chain
+    stages = []
+    broker = replace(factory(), observer=stages.append)
+    store = broker.recovery_store
+    original = store.update
+
+    def fail_receipt(*args, **changes):
+        if changes.get("state") == "resolved":
+            raise RecoveryError()
+        return original(*args, **changes)
+
+    monkeypatch.setattr(store, "update", fail_receipt)
+    with pytest.raises(SecurityError):
+        await broker(1)
+    assert len(state["vault"]) == 2
+    assert "lease_revoked" not in stages
+    assert store.read().attempts[0].state == "cleanup_pending"

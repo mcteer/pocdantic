@@ -11,6 +11,10 @@ SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "check_privacy.py"
     "name",
     [
         "design/private.txt",
+        ".local/recovery/state.json",
+        "config/state.json",
+        "config/anchor.json",
+        "specs/005-operational-reliability/recovery-receipt.json",
         "config/context.json",
         "specs/003-feature/closeout.json",
         "docs/adr/closeout.md",
@@ -108,3 +112,71 @@ def test_workspace_assets_have_exact_publication_allowlist(name):
         assert not publishable("src/agent/workspace/static/trace.zip")
     finally:
         sys.path.pop(0)
+
+
+def test_recovery_snapshots_and_receipts_are_forbidden_in_distributions():
+    import importlib.util
+
+    sys.path.insert(0, str(SCRIPT.parent))
+    try:
+        spec = importlib.util.spec_from_file_location("recovery_privacy_guard", SCRIPT)
+        guard = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(guard)
+        for name in (
+            "agent/recovery/state.json",
+            "config/anchor.json",
+            "specs/005/recovery-receipt.json",
+            ".local/recovery/state.json",
+        ):
+            assert guard.forbidden("package-0.1.0/" + name)
+    finally:
+        sys.path.pop(0)
+
+
+@pytest.mark.parametrize(
+    "artifact",
+    [
+        {
+            "schema_version": 1,
+            "environment_digest": "a" * 64,
+            "source_instance": "https://vault.example",
+            "records": [],
+        },
+        {
+            "type": "response",
+            "request": {"id": "native"},
+            "response": {"data": {"password": "private"}},
+        },
+        {
+            "lease_id": "database/creds/read/native",
+            "data": {"username": "private", "password": "private"},
+        },
+    ],
+)
+def test_renamed_native_sources_rejected_by_content(tmp_path, artifact):
+    import json
+
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    path = tmp_path / "config/renamed.json"
+    path.parent.mkdir()
+    path.write_text(json.dumps(artifact))
+    subprocess.run(
+        ["git", "add", "config/renamed.json"], cwd=tmp_path, check=True, capture_output=True
+    )
+    result = subprocess.run([sys.executable, str(SCRIPT)], cwd=tmp_path, capture_output=True)
+    assert result.returncode != 0
+    assert b"private" not in result.stdout
+
+
+def test_renamed_export_detection_shared_with_distribution_guard():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "recovery_content_rule", SCRIPT.parent / "publish_policy.py"
+    )
+    policy = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(policy)
+    native = b'{"type":"request","request":{"id":"native"}}'
+    assert policy.private_content("package/config/renamed.json", native)
+    assert not policy.private_content("tests/test_source.py", native)
+    assert not policy.private_content("config/agents.json", b'{"agents":[]}')

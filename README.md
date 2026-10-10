@@ -46,6 +46,8 @@ Install the server and model/database extras, configure the three LOGIN_* settin
 and run **uv run agent workspace**. Register the exact callback printed by the command,
 then open its local URL to sign in, submit tasks and view results.
 See [browser setup](docs/usage.md#browser-workspace) for instructions.
+Use **Check connection** for diagnostics and **Check recovery** after operator repair.
+Live database access first requires [prospective recovery enrollment](docs/usage.md#durable-recovery).
 
 ## Development and evidence
 

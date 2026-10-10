@@ -21,6 +21,30 @@
       <span id="session-status" role="status">Loading…</span>
     </div>
   </header>
+  <section aria-labelledby="operations-heading">
+    <h2 id="operations-heading">Connection and recovery</h2>
+    <div id="operations-status" role="status" aria-live="polite">Loading operational status…</div>
+    <button id="check-connection" type="button" disabled>Check connection</button>
+    <button id="check-recovery" type="button" disabled>Check recovery</button>
+    <p id="recovery-guidance"></p>
+    <ul id="incidents"></ul>
+    <p id="diagnostic-freshness"></p>
+    <ul id="diagnostic-checks"></ul>
+    <details>
+      <summary>Provider repair instructions</summary>
+      <p>Use a project administrator account to open
+        <a href="https://supabase.com/dashboard/project/_/database/settings" target="_blank"
+           rel="noopener noreferrer">Supabase Database Settings</a>.
+        Select and verify your project, then inspect Network bans. If your connection's
+        address is listed, unban that address. Expect it to disappear, then use Check
+        connection. A timeout alone does not prove a network ban.</p>
+      <p>For other providers, check the configured host, port, TLS trust, and the provider's
+        status page with its administrator. TCP success proves transport reachability only;
+        it does not prove database authentication, Vault permission, or cleanup.</p>
+      <p>Restored connectivity does not resolve uncertain credentials. The operator must
+        use the recovery command below; these controls never change provider settings.</p>
+    </details>
+  </section>
   <p id="error" role="alert" tabindex="-1" hidden></p>
   <!-- Remain hidden until session bootstrap finishes. The server still authorizes
        every request; visibility and disabled controls are only user-interface state. -->

@@ -49,6 +49,13 @@
         "items": {
           "type": "string"
         }
+      },
+      "properties": {
+        "sync": {
+          "const": [
+            true
+          ]
+        }
       }
     }
   }

@@ -17,7 +17,9 @@ async def test_offline_effect_boundaries(scenario):
 
 
 @pytest.mark.parametrize("status", [403, 200])
-async def test_actor_only_boundary_denial_or_unexpected_success_cleanup(monkeypatch, status):
+async def test_actor_only_boundary_denial_or_unexpected_success_cleanup(
+    monkeypatch, status, tmp_path
+):
     import httpx
     from pydantic import SecretStr
 
@@ -73,11 +75,21 @@ async def test_actor_only_boundary_denial_or_unexpected_success_cleanup(monkeypa
             "vault_addr": "https://synthetic.invalid",
             "vault_read_path": "database/creds/read",
             "vault_audience": "vault",
+            "oauth_audience": "synthetic",
+            "database_host": "synthetic.invalid",
+            "database_name": "synthetic",
         }
     )
+    from agent.recovery.store import RecoveryStore
+
+    recovery = RecoveryStore(s, project=tmp_path)
+    recovery.initialize()
     async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
         result = await actor_only_probe(
-            s, Principal(issuer="synthetic", subject="synthetic-user"), http=http
+            s,
+            Principal(issuer="synthetic", subject="synthetic-user"),
+            http=http,
+            recovery_store=recovery,
         )
     assert result.outcome == ("pass" if status == 403 else "fail")
     assert result.effect_attempts == 1
@@ -85,7 +97,8 @@ async def test_actor_only_boundary_denial_or_unexpected_success_cleanup(monkeypa
     assert result.forbidden_effects == (0 if status == 403 else 1)
     if status == 200:
         assert details_seen[0][0]["allowed_parameters"] == {
-            "lease_id": ["database/creds/read/synthetic"]
+            "lease_id": ["database/creds/read/synthetic"],
+            "sync": [True],
         }
         assert result.cleanup == "revoked"
 

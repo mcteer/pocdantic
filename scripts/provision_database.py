@@ -41,8 +41,8 @@ ACL = (
     'path "auth/token/revoke-self" { capabilities = ["update"] }\n'
     'path "database/creds/poc-readonly" { capabilities = ["read"] }\n'
     'path "sys/leases/revoke" { capabilities = ["update"] '
-    'required_parameters = ["lease_id"] '
-    'allowed_parameters = { "lease_id" = ["database/creds/poc-readonly/*"] } }'
+    'required_parameters = ["lease_id", "sync"] '
+    'allowed_parameters = { "lease_id" = ["database/creds/poc-readonly/*"], "sync" = [true] } }'
 )
 
 

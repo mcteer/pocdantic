@@ -109,7 +109,14 @@ class Boundary:
             await guarded_send(
                 {
                     "type": "http.response.start",
-                    "status": 400,
+                    "status": 403
+                    if path
+                    in {
+                        "/workspace/operations",
+                        "/workspace/diagnostics",
+                        "/workspace/recovery/check",
+                    }
+                    else 400,
                     "headers": [(b"content-type", b"application/json")],
                 }
             )

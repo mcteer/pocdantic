@@ -378,20 +378,44 @@ async def live_scenario(label, *, settings=None, cleanup_timeout=30, runtime_opt
     )
 
 
-async def actor_only_probe(settings, principal, *, cleanup_timeout=30, http=None, observer=None):
+async def actor_only_probe(
+    settings, principal, *, cleanup_timeout=30, http=None, observer=None, recovery_store=None
+):
     """Attempt the forbidden actor credential boundary once; clean any unexpected lease.
 
     A denied token request before the Vault boundary is insufficient proof. Administrative
     credentials are never used, including on unexpected success or cleanup failure.
     """
+    from ..recovery.store import RecoveryStore
+
+    recovery = recovery_store or RecoveryStore(settings)
+    # The forbidden probe is still an issuance boundary and shares the same journal.
+    with recovery.effect() as owner:
+        return await _actor_only_owned(
+            settings,
+            principal,
+            owner,
+            recovery,
+            cleanup_timeout=cleanup_timeout,
+            http=http,
+            observer=observer,
+        )
+
+
+async def _actor_only_owned(
+    settings, principal, owner, recovery, *, cleanup_timeout, http, observer
+):
+    """Run one journal-gated probe while retaining effect ownership through cleanup."""
     import re
     from contextlib import nullcontext
 
     from ..broker import validate_delegation
     from ..oauth import JWTVerifier, OAuthClient
     from ..probe import oauth_config
+    from ..recovery.lifecycle import CredentialLifecycle
     from ..vault import validate_path
 
+    recovery.read()
     s = settings
     attempted = 0
     acquired = False
@@ -409,7 +433,13 @@ async def actor_only_probe(settings, principal, *, cleanup_timeout=30, http=None
         ).verify_claims(actor.access_token)
         if claims["sub"] == principal.subject:
             return EffectResult("blocked", reason=Reason.prerequisite_missing)
-        vault = VaultClient(s.vault_addr, s.vault_namespace, client, operation_observer=observer)
+        vault = VaultClient(
+            s.vault_addr,
+            s.vault_namespace,
+            client,
+            operation_observer=observer,
+            credential_lifecycle=CredentialLifecycle(recovery, owner, observer),
+        )
 
         async def cleanup(lease_id):
             """Use verified human-plus-actor delegation to clean an unexpectedly issued
@@ -430,8 +460,8 @@ async def actor_only_probe(settings, principal, *, cleanup_timeout=30, http=None
                     "type": "vault:path_access",
                     "path": "sys/leases/revoke",
                     "capabilities": ["update"],
-                    "required_parameters": ["lease_id"],
-                    "allowed_parameters": {"lease_id": [lease_id]},
+                    "required_parameters": ["lease_id", "sync"],
+                    "allowed_parameters": {"lease_id": [lease_id], "sync": [True]},
                 }
             ]
             token = await oauth.exchange_details(
