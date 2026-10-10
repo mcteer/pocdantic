@@ -7,6 +7,7 @@ ROOT_FILES = {
     ".env.example",
     "README.md",
     "CONTRIBUTING.md",
+    "AGENTS.md",
     "pyproject.toml",
     "uv.lock",
     "compose.yaml",

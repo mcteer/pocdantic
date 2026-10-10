@@ -3,6 +3,8 @@
 PoCdantic is maintained by the project maintainers. Contributions should preserve its reusable,
 identity-aware agent harness and keep customer configuration outside the code.
 
+Coding tools should also read [AGENTS.md](AGENTS.md) for repository-specific guidance.
+
 ## Before starting
 
 For a bug, describe expected and actual behavior, package/Python versions and a
