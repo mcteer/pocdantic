@@ -483,7 +483,9 @@ changing old results, or replaying work. A valid session can submit a new task e
 an expired/signed-out session must sign in normally.
 
 Before live cleanup, the integration administrator must update the installed RAR schema
-and example Vault ACL to permit **boolean** `sync=true`. The cleanup authorization details
+and every applicable cleanup ACL, including the agent-registry ceiling policy, to permit
+**boolean** `sync=true`. Updating only the database role policy can still leave delegated
+cleanup denied by an unchanged ceiling policy. The cleanup authorization details
 must have `required_parameters: ["lease_id", "sync"]` and
 `allowed_parameters: {"lease_id": ["exact handle"], "sync": [true]}` at
 `sys/leases/revoke` with `capabilities: ["update"]`. Numeric `1`, string `"true"`, false,
