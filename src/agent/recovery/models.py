@@ -275,6 +275,9 @@ class AttemptV2(Attempt):
     """Version-two attempt; ownership is mandatory and private."""
 
     schema_version: Literal[2] = 2
+    acquisition_submitted_at: datetime | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     ownership: Annotated[BoundOwnership | LegacyOwnership, Field(discriminator="kind")]
 
     @field_validator("schema_version", mode="before")

@@ -207,3 +207,21 @@ def synthetic_runtime_dependency(monkeypatch, tmp_path):
         original(self, settings, **kwargs)
 
     monkeypatch.setattr(Runtime, "__init__", initialize)
+
+
+@pytest.fixture(autouse=True)
+def provider_network_boundary(request, monkeypatch):
+    """Deny unmocked provider-test HTTP; fixture transports cannot fall through to sockets."""
+    if not request.node.path.name.startswith("test_provider_"):
+        return
+
+    async def async_denied(*args, **kwargs):
+        """Fail before an unmocked async HTTP transport opens a connection."""
+        raise AssertionError("unmocked provider network")
+
+    def sync_denied(*args, **kwargs):
+        """Fail before a synchronous provider request can leave the test."""
+        raise AssertionError("unmocked provider network")
+
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", async_denied)
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", sync_denied)

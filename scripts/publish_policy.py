@@ -4,6 +4,7 @@ Generated evidence remains private even if placed inside an otherwise allowed tr
 The historical package path remains eligible only for immutable Git-history checks.
 """
 
+import hashlib
 import json
 import re
 from pathlib import PurePosixPath
@@ -26,6 +27,9 @@ def generated_private(name: str) -> bool:
     """
     p = PurePosixPath(name)
     if p.name in {
+        "providers.draft.json",
+        "providers.readiness.json",
+        "provider-secrets.json",
         "run.json",
         "anchor.json",
         "state.json",
@@ -76,6 +80,14 @@ def private_content(name: str, data: bytes) -> bool:
     example_name = name
     if len(parts) == 3 and re.fullmatch(r"pocdantic-[0-9][A-Za-z0-9.]+", parts[0]):
         example_name = str(PurePosixPath(*parts[1:]))
+    # This exact immutable synthetic example alone is exempt. A modified or renamed
+    # enrollment still fails private-content detection, including inside distributions.
+    if (
+        example_name == "config/providers.example.json"
+        and hashlib.sha256(data).hexdigest()
+        == "f03b8175792c3604077e8ab0d04e487c7f18af60fd88b99b11ea3a8552f0d091"
+    ):
+        return False
     pending = list(values)
     while pending:
         value = pending.pop()
@@ -93,7 +105,16 @@ def private_content(name: str, data: bytes) -> bool:
                 "automatic_cleanup": False,
             }
             if (
-                {"installation_id", "policy_digest", "incidents"} <= value.keys()
+                {"installation_id", "source_policy_digest", "bindings"} <= value.keys()
+                or {"installation_id", "draft_digest", "bindings"} <= value.keys()
+                or {"action_id", "binding", "enrollment_digest"} <= value.keys()
+                or {"observation_id", "binding_id", "source_digest"} <= value.keys()
+                or {"acquisition_id", "ownership", "credential_path"} <= value.keys()
+                or {"acquisition_id", "ownership", "actor_subject", "mount"} <= value.keys()
+                or {"notice_id", "notice_revision", "resource_generation"} <= value.keys()
+                or {"tenant_origin", "api_client_id", "entitlements", "source_digest"}
+                <= value.keys()
+                or {"installation_id", "policy_digest", "incidents"} <= value.keys()
                 or {"installation_id", "recovery_mode", "recovery_installation_id"} <= value.keys()
                 or {"intake_mode", "sources", "audience", "automatic_cleanup"} <= value.keys()
                 and not synthetic_policy
@@ -111,6 +132,15 @@ def private_content(name: str, data: bytes) -> bool:
                 <= value.keys()
             ):
                 return True
+            for text in value.values():
+                if isinstance(text, str) and (
+                    re.search(
+                        r"https://[^\s]+[?&](?:sig|signature|code|token|api_key)=", text, re.I
+                    )
+                    or re.search(r"(?:^|\s)password\s*=", text, re.I)
+                    or re.search(r"(?:postgres(?:ql)?://)[^\s/@]+:[^\s/@]+@", text, re.I)
+                ):
+                    return True
             pending.extend(value.values())
     return False
 

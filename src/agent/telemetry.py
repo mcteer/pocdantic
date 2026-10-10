@@ -84,6 +84,23 @@ ENUMS = {
     "response_status": frozenset(
         ("planned", "submitted", "confirmed", "denied", "failed", "uncertain")
     ),
+    "provider_action": frozenset(
+        (
+            "block_registration",
+            "revoke_native_token",
+            "suspend_user",
+            "revoke_user_sessions",
+            "rotate_static",
+            "terminate_static_sessions",
+            "notify_teams",
+        )
+    ),
+    "provider_state": frozenset(
+        ("planned", "submitted", "acknowledged", "denied", "failed", "uncertain", "reconciled")
+    ),
+    "provider_proof": frozenset(
+        ("not_run", "proven", "disproven", "inconclusive", "unsupported", "not_applicable")
+    ),
     "phase": SAFE_NAMES,
     "outcome": frozenset(("pass", "fail", "blocked", "interrupted")),
     "detail": frozenset(

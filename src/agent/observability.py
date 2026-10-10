@@ -284,3 +284,21 @@ def response_action(telemetry, kind, status):
             "response", attributes={"response_action": kind, "response_status": status}
         ):
             pass
+
+
+def provider_action(telemetry, kind, state, proof="not_run"):
+    """Export only closed control outcomes; tracing failure cannot change durable authority."""
+    if telemetry is not None:
+        try:
+            with telemetry.provider.get_tracer("agent").start_as_current_span(
+                "response",
+                attributes={
+                    "provider_action": kind,
+                    "provider_state": state,
+                    "provider_proof": proof,
+                },
+            ):
+                pass
+        except Exception:
+            # Provider results remain durable even when metadata export is unavailable.
+            pass

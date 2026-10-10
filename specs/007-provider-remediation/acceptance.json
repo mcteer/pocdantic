@@ -1,0 +1,122 @@
+[
+  {
+    "criterion": "UC1-01",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "007 planning does not re-accept earlier delegated-access or approval controls; their native evidence/review requirements remain independent, including the recorded Development-tier audit limitation where applicable.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC1-02",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "007 planning does not re-accept earlier delegated-access or approval controls; their native evidence/review requirements remain independent, including the recorded Development-tier audit limitation where applicable.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC1-03",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "007 planning does not re-accept earlier delegated-access or approval controls; their native evidence/review requirements remain independent, including the recorded Development-tier audit limitation where applicable.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC1-04",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "007 planning does not re-accept earlier delegated-access or approval controls; their native evidence/review requirements remain independent, including the recorded Development-tier audit limitation where applicable.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC1-05",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "007 planning does not re-accept earlier delegated-access or approval controls; their native evidence/review requirements remain independent, including the recorded Development-tier audit limitation where applicable.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC2-01",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "007 planning does not re-accept earlier delegated-access or approval controls; their native evidence/review requirements remain independent, including the recorded Development-tier audit limitation where applicable.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC2-02",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "007 planning does not re-accept earlier delegated-access or approval controls; their native evidence/review requirements remain independent, including the recorded Development-tier audit limitation where applicable.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC2-03",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "007 planning does not re-accept earlier delegated-access or approval controls; their native evidence/review requirements remain independent, including the recorded Development-tier audit limitation where applicable.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC3-01",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "007 plans provider detection/remediation software; native collector, exact target enrollment, independent before/after observations and explicit review are not yet supplied. Development-tier audit remains unavailable for audit-specific claims.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC3-02",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "007 plans provider detection/remediation software; native collector, exact target enrollment, independent before/after observations and explicit review are not yet supplied. Development-tier audit remains unavailable for audit-specific claims.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC3-03",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "007 plans provider detection/remediation software; native collector, exact target enrollment, independent before/after observations and explicit review are not yet supplied. Development-tier audit remains unavailable for audit-specific claims.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC3-04",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "007 plans provider detection/remediation software; native collector, exact target enrollment, independent before/after observations and explicit review are not yet supplied. Development-tier audit remains unavailable for audit-specific claims.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC4-01",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "Function 11 shadow discovery and enrollment remain outside 007; no new native acceptance evidence is supplied.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC4-02",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "Function 11 shadow discovery and enrollment remain outside 007; no new native acceptance evidence is supplied.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC4-03",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "Function 11 shadow discovery and enrollment remain outside 007; no new native acceptance evidence is supplied.",
+    "source": "none",
+    "references": []
+  }
+]

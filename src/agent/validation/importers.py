@@ -371,3 +371,32 @@ def load_transactions(writer):
             raise StoreError("evidence_contradicted")
         values.append(value.model_copy(update={"decision": precise}))
     return values
+
+
+def provider_observation_input(path):
+    """Read a local owner-only observation with a 1-MiB cap and no symlink traversal.
+
+    Native raw source bytes remain in operator custody; this reads only the strict
+    observation envelope. Unsafe files return a closed error without revealing paths.
+    """
+    import os
+
+    from agent.recovery.store import check_stat
+    from agent.response.models import ResponseError
+
+    from .store import no_symlinks
+
+    try:
+        path = Path(path)
+        no_symlinks(path)
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(descriptor, "rb") as file:
+            before = os.fstat(file.fileno())
+            check_stat(before)
+            raw = file.read(1048577)
+            after = os.stat(path, follow_symlinks=False)
+            if len(raw) > 1048576 or (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
+                raise ValueError()
+        return raw
+    except Exception:
+        raise ResponseError("provider_evidence_invalid") from None

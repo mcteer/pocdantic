@@ -629,3 +629,18 @@ async def offline_response_scenario():
             and fresh.generation > run.generation
             and not store.read().holds
         )
+
+
+async def execute_provider_proof(store, *, inputs, transport=None, **options):
+    """Run a fixed explicitly requested operator proof, isolated for live execution.
+
+    This factory is not a model tool or browser route. Scenario/target validation
+    belongs to the compiled provider workflow; supplied test transports remain
+    synthetic and can never qualify native closeout. Private credentials use stdin
+    to the live child and never become scenario labels, arguments or report fields.
+    """
+    from agent.response.providers.workflow import isolated_probe, run_probe
+
+    if transport is not None:
+        return await run_probe(store, inputs=inputs, transport=transport, **options)
+    return await isolated_probe(store, inputs=inputs, **options)

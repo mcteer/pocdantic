@@ -39,7 +39,45 @@ REASONS = {
     "revision_conflict": "inspect_hold",
     "timing_unavailable": "review_limitations",
     "external_control_not_performed": "review_limitations",
+    "response_schema_migration_required": "migrate_response",
 }
+
+
+REASONS.update(
+    {
+        reason: "inspect_provider_response"
+        for reason in (
+            "not_enrolled",
+            "mapping_missing",
+            "missing_authority",
+            "unsupported",
+            "source_evidence_missing",
+            "destination_invalid",
+            "provider_unreachable",
+            "proof_required",
+            "provider_acknowledged",
+            "provider_denied",
+            "provider_uncertain",
+            "provider_failed",
+            "provider_state_observed",
+            "provider_capacity",
+            "provider_busy",
+            "provider_policy_changed",
+            "provider_evidence_invalid",
+            "provider_dependency",
+            "provider_timeout",
+            "provider_retry_review",
+            "old_credential_unsafe",
+            "probe_ready",
+            "probe_denied",
+            "probe_issued",
+            "probe_uncertain",
+            "provider_reconciled",
+            "notification_accepted",
+            "notification_delivered",
+        )
+    }
+)
 
 
 class ResponseError(SecurityError):
@@ -128,6 +166,8 @@ class RunBinding(Private):
     generation: Revision
     issuer: Annotated[str, Field(min_length=1, max_length=2048)]
     subject: Annotated[str, Field(min_length=1, max_length=256)]
+    actor_issuer: str | None = Field(default=None, max_length=2048)
+    actor_subject: str | None = Field(default=None, max_length=256)
     started_at: datetime = Field(default_factory=now)
     finished_at: datetime | None = None
     state: Literal["active", "terminal"] = "active"
@@ -301,6 +341,92 @@ class ResponseJournal(Private):
         return self
 
 
+class PublicTimingInterval(Contract):
+    """An available cross-clock interval, explicitly bounded instead of presented as exact."""
+
+    lower_ms: Milliseconds
+    upper_ms: Milliseconds
+    uncertainty_ms: Milliseconds
+
+    @model_validator(mode="after")
+    def ordered(self):
+        """Reject inverted intervals before projecting a timing claim."""
+        if self.upper_ms < self.lower_ms:
+            raise ValueError("timing_unavailable")
+        return self
+
+
+class PublicProviderControl(Contract):
+    """Owned additive control result containing only closed codes and opaque references."""
+
+    action_id: UUID
+    attempt_ms: Milliseconds | None = None
+    source_to_loss: PublicTimingInterval | None = None
+    kind: Literal[
+        "block_registration",
+        "revoke_native_token",
+        "suspend_user",
+        "revoke_user_sessions",
+        "rotate_static",
+        "terminate_static_sessions",
+        "notify_teams",
+    ]
+    state: Literal[
+        "planned", "submitted", "acknowledged", "denied", "failed", "uncertain", "reconciled"
+    ]
+    required: StrictBool
+    reason_code: Literal[
+        "not_enrolled",
+        "mapping_missing",
+        "missing_authority",
+        "unsupported",
+        "source_evidence_missing",
+        "destination_invalid",
+        "provider_unreachable",
+        "proof_required",
+        "provider_acknowledged",
+        "provider_denied",
+        "provider_uncertain",
+        "provider_failed",
+        "provider_state_observed",
+        "provider_capacity",
+        "provider_busy",
+        "provider_policy_changed",
+        "provider_evidence_invalid",
+        "provider_dependency",
+        "provider_timeout",
+        "provider_retry_review",
+        "old_credential_unsafe",
+        "probe_ready",
+        "probe_denied",
+        "probe_issued",
+        "probe_uncertain",
+        "provider_reconciled",
+        "notification_accepted",
+        "notification_delivered",
+        "timing_unavailable",
+    ]
+    paths: dict[
+        Literal[
+            "registration",
+            "native_token",
+            "native_token_readback",
+            "tenant_session_readback",
+            "static_session_readback",
+            "tenant_user",
+            "tenant_sessions",
+            "same_jwt",
+            "fresh_issuance",
+            "static_old",
+            "static_new",
+            "static_session",
+            "notification",
+        ],
+        Literal["not_run", "proven", "disproven", "inconclusive", "unsupported", "not_applicable"],
+    ]
+    provenance: Literal["local_only", "synthetic", "native"]
+
+
 class PublicSummary(Contract):
     """Session/source-owned safe result with no native identifiers or mappings."""
 
@@ -308,6 +434,11 @@ class PublicSummary(Contract):
     scope: Literal["root_run", "definition"]
     phase: Literal["contained", "responding", "partial", "settled"]
     contained: StrictBool
+    provider_controls: tuple[PublicProviderControl, ...] = Field(default=(), max_length=16)
+    database_checks: dict[
+        Literal["dynamic_fresh", "dynamic_session"],
+        Literal["not_run", "proven", "disproven", "inconclusive", "unsupported", "not_applicable"],
+    ] = Field(default_factory=dict)
     cleanup: Literal["pending", "confirmed", "not_applicable"]
     reason_code: str
     next_action: str

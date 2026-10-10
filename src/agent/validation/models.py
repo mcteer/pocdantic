@@ -155,6 +155,30 @@ def implementation_revision():
             "closeout",
         )
     ]
+    names += [
+        "response/" + n + ".py"
+        for n in ("models", "store", "guard", "coordinator", "api", "auth", "commands", "native")
+    ]
+    names += [
+        "response/providers/" + n + ".py"
+        for n in (
+            "models",
+            "journal",
+            "enrollment",
+            "planner",
+            "worker",
+            "common",
+            "vault",
+            "verify",
+            "database",
+            "teams",
+            "proof",
+            "report",
+            "retention",
+            "workflow",
+        )
+    ]
+    names += ["recovery/store.py", "recovery/models.py"]
     return digest(
         {name: hashlib.sha256(root.joinpath(name).read_bytes()).hexdigest() for name in names}
     )

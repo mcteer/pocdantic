@@ -29,6 +29,11 @@ class RootGuard:
             raise ResponseError("contained")
         self.store.check(self.binding)
 
+    def bind_actor(self, issuer, subject):
+        """Capture a freshly verified workload actor before privileged acquisition."""
+        self.check()
+        self.store.bind_actor(self.binding, issuer, subject)
+
     def ownership(self):
         """Return immutable attribution for the acquisition intent, after a fresh guard."""
         self.check()
@@ -102,10 +107,20 @@ class MemoryStore:
         if (
             self.definition_held
             or binding.root_run_id in self.blocked
-            or self.runs.get(binding.root_run_id) != binding
+            or self.runs.get(binding.root_run_id) is None
+            or self.runs[binding.root_run_id].state != "active"
+            or self.runs[binding.root_run_id].ownership() != binding.ownership()
         ):
             raise ResponseError("contained")
 
+    def bind_actor(self, binding, issuer, subject):
+        """Capture synthetic verified metadata without changing immutable ownership."""
+        self.check(binding)
+        updated = binding.model_copy(update={"actor_issuer": issuer, "actor_subject": subject})
+        self.runs[binding.root_run_id] = updated
+
     def finish(self, binding):
         """Keep a terminal root in fixture memory so it cannot be registered again."""
-        self.runs[binding.root_run_id] = binding.model_copy(update={"state": "terminal"})
+        self.runs[binding.root_run_id] = self.runs[binding.root_run_id].model_copy(
+            update={"state": "terminal"}
+        )

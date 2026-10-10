@@ -150,12 +150,72 @@ class VaultClient:
         return await self.request("GET", path, token)
 
     async def workload_login(self, mount: str, role: str, jwt: SecretStr) -> dict:
-        """Private result: caller must never forward auth client_token to model/telemetry."""
-        return await self.request(
-            "POST",
-            f"auth/{validate_path(mount)}/login",
-            body={"role": role, "jwt": jwt.get_secret_value()},
-        )
+        """Acquire a prospectively owned service token; incomplete issuance remains uncertain.
+
+        This optional native path requires a host guard, verified actor and explicitly
+        enrolled exclusive login role. Ordinary delegated OBO remains unchanged.
+        """
+        from .recovery.workers import descriptor_scope
+        from .response.providers.enrollment import native_begin, native_update
+
+        guard = self.credential_guard
+        if guard is None or not hasattr(guard.store, "transaction"):
+            raise SecurityError("native_login_not_enrolled")
+        store = guard.store
+        mode = store.anchor().recovery_mode
+        with store.recovery.effect() if mode == "configured" else store.effect() as owner:
+            with descriptor_scope(owner.fd):
+                item = native_begin(
+                    store,
+                    guard,
+                    validate_path(mount),
+                    validate_path(role),
+                    self.address,
+                    self.namespace,
+                )
+                native_update(store, item, "submitted")
+                try:
+                    from .response.providers.common import request
+
+                    headers = {"X-Vault-Namespace": self.namespace} if self.namespace else {}
+                    guard.check()
+                    async with asyncio.timeout(10):
+                        status, result, _ = await request(
+                            self.http,
+                            "POST",
+                            f"{self.address}/v1/auth/{mount}/login",
+                            headers=headers,
+                            body={"role": role, "jwt": jwt.get_secret_value()},
+                        )
+                    if (
+                        status in {401, 403}
+                        and isinstance(result, dict)
+                        and set(result) <= {"errors", "request_id"}
+                    ):
+                        native_update(store, item, "denied")
+                        raise SecurityError("native_login_denied")
+                    if not 200 <= status < 300 or not isinstance(result, dict):
+                        raise SecurityError("native_login_uncertain")
+                    native_update(
+                        store,
+                        item,
+                        "bound",
+                        auth=result.get("auth"),
+                        origin=self.address,
+                        namespace=self.namespace,
+                    )
+                    # Capture first: containment arriving during login must not hide a token.
+                    guard.check()
+                    return result
+                except BaseException:
+                    current = next(
+                        a
+                        for a in store.read().native_acquisitions
+                        if a.acquisition_id == item.acquisition_id
+                    )
+                    if current.state not in {"bound", "denied"}:
+                        native_update(store, item, "uncertain")
+                    raise
 
     async def revoke(self, token: SecretStr, lease_id: str) -> None:
         """Wait for synchronous exact-lease revocation; never accept queued completion."""

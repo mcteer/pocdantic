@@ -58,6 +58,7 @@ class SessionStore:
         """Initialize bounded browser/session registries and cleanup tracking."""
         self.clock, self.browsers, self.sessions = clock, {}, {}
         self.on_close = None
+        self.subject_held = None
         self.drains = set()
 
     def prune(self):
@@ -69,6 +70,14 @@ class SessionStore:
             if b.deadline <= now:
                 del self.browsers[key]
         for s in list(self.sessions.values()):
+            if (
+                self.subject_held
+                and s.credentials
+                and self.subject_held(
+                    s.credentials.principal.issuer, s.credentials.principal.subject
+                )
+            ):
+                self.close(s)
             if s.state not in {"closing", "closed"} and (
                 now - s.touched >= 1800 or now - s.created >= 28800
             ):
@@ -97,6 +106,10 @@ class SessionStore:
     def authenticate(self, browser, credentials):
         """Rotate a completed browser login into a new authenticated session and cookie."""
         self.prune()
+        if self.subject_held and self.subject_held(
+            credentials.principal.issuer, credentials.principal.subject
+        ):
+            raise SecurityError("contained")
         if len(self.sessions) >= 4:
             raise SecurityError("capacity_exceeded")
         self.browsers.pop(digest(browser.cookie), None)

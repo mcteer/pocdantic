@@ -177,3 +177,67 @@ containment-only operation. Never put tokens in the policy. Unknown ownership/is
 unconfirmed responses require existing explicit recovery; the responder cannot invent
 proof or automatically replay submitted actions. Preserve both private journal directories
 and their anchors together. Stop all owners before migration or storage repair.
+
+## Provider remediation enrollment
+
+007 adds no environment variables or dependencies. Existing Vault/Verify control settings
+supply administrative authority. Run `agent respond providers prepare` to create
+`.local/response/providers.draft.json` and `provider-secrets.json` with owner-only permissions.
+The draft is inactive until an explicit, revision-bound enrollment. Never commit these files.
+[providers.example.json](../config/providers.example.json) is a synthetic structural example,
+with no provider authority or native acceptance claim.
+
+The private `Enrollment` model in `src/agent/response/providers/models.py` is the strict field
+reference. It pins the installation, runtime environment, source policy and definition;
+resource aliases select exact UUID bindings, HTTPS origins, namespaces, native IDs and
+positive generations. Rules choose fixed actions and root/definition scope. Root rules allow
+only exclusive owned native-token revocation and advisory notification; shared registration,
+user and static-role changes require definition scope. Duplicate canonical resources fail
+validation even if aliases, UUIDs or Teams URL signatures differ.
+
+Store only secret alias → string values in `provider-secrets.json`. Bindings can reference
+`secret_alias` (control DSN or Teams URL), `proof_secret_alias` (direct isolated-role proof DSN),
+and `healthy_secret_alias` (direct distinct-role health DSN). Enrollment pins their SHA-256
+values. Teams also pins the workflow host/path independently of its rotating signature.
+Production database DSNs require `sslmode=verify-full`; pool endpoints, transaction-pool
+ports, multi-host destinations and connection `options` are rejected. The healthy account
+must resolve to a different actual server role in the same database.
+
+For dynamic database proofs, set `dynamic_healthy_secret_alias` and supply the independently
+reviewed canonical `revocation_statements` digest as `dynamic_revocation_review_digest`.
+Readiness reads the configured Vault role and compares this digest; it does not install SQL
+or provision accounts. Generated lease cleanup continues through existing exact recovery.
+Legacy leases receive no retrospective database identity attribution.
+
+Native `SourceProfile` entries pin the relay issuer, exact subject, distinct audience,
+source alias, schema reference, equality predicates and bounded scalar JSON pointers.
+Each native source requires owner-only files in `.local/response/`:
+
+- `native-ALIAS.schema.json`: object with the matching `schema_ref`.
+- `native-ALIAS.fixture.json`: minimal exported native event, matching `fixture_digest`.
+- `native-ALIAS.receipt.json`: independently captured collector receipt, matching
+  `collector_digest`, with reviewer attribution in the source profile.
+
+Pointers select `event_id`, `occurred_at`, `rule`, `object`, and for root events `request_id`.
+`objects` maps native object IDs to the definition. Root profiles additionally require
+`object_bindings` mapping every object to an enrolled binding UUID; the host request and
+verified actor/user must match that binding. A generic SaaS event or manually submitted
+normalized signal cannot establish VIP-native detection. Native bodies are bounded to
+64 KiB, depth eight and 128 scalars, with at most eight pointers/predicates. Credential
+fields are rejected even when they are not selected.
+
+Verify bindings require a private `verify-ALIAS.authority.json` matching `AuthorityReview`:
+exact tenant/API client/user/issuer/subject, reviewed entitlements, tenant-only federation
+scope, source digest, reviewer and UTC review time. Readiness deliberately avoids API-client
+secret-returning detail endpoints. Session proofs additionally require an independently
+reviewed `session_id_field` and `session_schema_digest`; the implementation does not assume
+an undocumented vendor response field. Use `session_id_field: "@"` only for an independently
+reviewed root array of scalar string IDs; otherwise supply the exact reviewed object field.
+Session IDs stay in ephemeral trusted memory.
+
+Only explicitly enabled controls with fresh successful readiness can activate. Changing
+an existing resource requires its next generation and the next enrollment revision, with
+no live roots, owners, holds or unresolved effects/acquisitions. Configuration changes do
+not reset old identity blocks. Ordinary OBO passes the delegated JWT directly to Vault;
+native service-token ownership is available only through the separately enrolled exclusive
+native login mount/role. Batch/shared token trees remain unsupported.

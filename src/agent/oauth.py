@@ -61,6 +61,8 @@ class OAuthClient:
         """
         self.config, self.http = config, http
         self._metadata: dict | None = None
+        self.definitive_token_denial = False
+        self.token_denial_category = None
 
     def validate_endpoint(self, endpoint: str) -> str:
         """Require HTTPS on a configured discovery/token/issuer host or explicit trusted host."""
@@ -77,15 +79,42 @@ class OAuthClient:
             raise SecurityError("oauth_untrusted_endpoint")
         return endpoint
 
+    async def bounded_json(self, method, endpoint, **kwargs):
+        """Stream at most 256 KiB from a pinned endpoint; never follow redirects.
+
+        Bounds apply before parsing and also cover discovery/JWKS. Credentials remain
+        inside the adapter; malformed or oversized replies do not establish denial.
+        """
+        async with self.http.stream(
+            method,
+            self.validate_endpoint(endpoint),
+            headers={"Accept-Encoding": "identity"},
+            follow_redirects=False,
+            **kwargs,
+        ) as response:
+            if response.headers.get("content-encoding", "identity") not in {"", "identity"}:
+                raise SecurityError("oauth_response_size")
+            raw = bytearray()
+            async for chunk in response.aiter_bytes(chunk_size=8192):
+                raw.extend(chunk)
+                if len(raw) > 262144:
+                    raise SecurityError("oauth_response_size")
+            if 300 <= response.status_code < 400:
+                raise SecurityError("oauth_untrusted_endpoint")
+            value = json.loads(raw)
+            if not isinstance(value, dict):
+                raise SecurityError("oauth_request_failed")
+            return response.status_code, value
+
     async def metadata(self) -> dict:
         """Fetch and cache discovery metadata after checking issuer and endpoint trust."""
         if self._metadata is None:
             if not self.config.discovery_url:
                 raise SecurityError("oauth_discovery_missing")
             try:
-                response = await self.http.get(self.validate_endpoint(self.config.discovery_url))
-                response.raise_for_status()
-                data = response.json()
+                status, data = await self.bounded_json("GET", self.config.discovery_url)
+                if status != 200:
+                    raise SecurityError("oauth_discovery_failed")
                 if self.config.issuer and data.get("issuer") != self.config.issuer:
                     raise SecurityError("oauth_issuer_mismatch")
                 for name in ("issuer", "token_endpoint", "jwks_uri"):
@@ -113,13 +142,24 @@ class OAuthClient:
                 client_id=self.config.client_id,
                 client_secret=self.config.client_secret.get_secret_value(),
             )
+        self.definitive_token_denial = False
+        self.token_denial_category = None
         try:
-            response = await self.http.post(self.validate_endpoint(endpoint), data=data, auth=auth)
-            if response.is_error:
-                raise SecurityError(f"oauth_http_{response.status_code}")
-            if len(response.content) > 262144:
-                raise SecurityError("oauth_response_size")
-            token = TokenResponse.model_validate(response.json())
+            status, value = await self.bounded_json("POST", endpoint, data=data, auth=auth)
+            if status >= 400:
+                self.definitive_token_denial = (
+                    status in {401, 403}
+                    and set(value) <= {"error", "error_description", "error_uri"}
+                    and isinstance(value.get("error"), str)
+                    and bool(value["error"])
+                )
+                if self.definitive_token_denial and value.get("error") in {
+                    "access_denied",
+                    "invalid_grant",
+                }:
+                    self.token_denial_category = value["error"]
+                raise SecurityError(f"oauth_http_{status}")
+            token = TokenResponse.model_validate(value)
             if token.token_type.lower() != "bearer" or token.issued_token_type not in {
                 None,
                 "urn:ietf:params:oauth:token-type:access_token",
@@ -208,9 +248,10 @@ class JWTVerifier:
         """
         try:
             metadata = await self.oauth.metadata()
-            response = await self.oauth.http.get(self.oauth.validate_endpoint(metadata["jwks_uri"]))
-            response.raise_for_status()
-            keys = jwt.PyJWKSet.from_dict(response.json())
+            status, data = await self.oauth.bounded_json("GET", metadata["jwks_uri"])
+            if status != 200:
+                raise SecurityError("identity_invalid")
+            keys = jwt.PyJWKSet.from_dict(data)
             raw = token.get_secret_value()
             header = jwt.get_unverified_header(raw)
             if header.get("typ") != self.token_typ or header.get("alg") not in {"RS256", "ES256"}:
