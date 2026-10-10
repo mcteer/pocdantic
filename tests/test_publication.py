@@ -11,6 +11,10 @@ SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "check_privacy.py"
     "name",
     [
         "design/private.txt",
+        ".local/validation/run.json",
+        "specs/002-feature/report.json",
+        "config/review-00000000-0000-4000-8000-000000000002.json",
+        "specs/002-feature/source-00000000-0000-4000-8000-000000000002.raw",
         ".env.local",
         "specs/001-feature/evidence/private.json",
         "notes.md",
@@ -32,7 +36,7 @@ def test_private_or_non_harness_files_rejected_even_when_force_added(tmp_path, n
 @pytest.mark.parametrize(
     "name",
     [
-        "src/pocdantic/main.py",
+        "src/agent/main.py",
         "specs/001-feature/spec.md",
         "docs/adr/0001-decision.md",
         ".specify/memory/constitution.md",
@@ -81,5 +85,7 @@ def test_chat_frontend_is_forbidden_in_distribution_paths():
         spec.loader.exec_module(guard)
         assert guard.forbidden("PoCdantic-0.1.0/chat/app.py")
         assert guard.forbidden("chat/static/index.html")
+        assert guard.forbidden("PoCdantic-0.1.0/specs/002-feature/report.json")
+        assert guard.forbidden("agent/validation/review-00000000-0000-4000-8000-000000000002.json")
     finally:
         sys.path.pop(0)

@@ -184,6 +184,8 @@ class JWTVerifier:
             return claims
         except SecurityError:
             raise
+        except jwt.ExpiredSignatureError:
+            raise SecurityError("identity_expired") from None
         except (jwt.PyJWTError, httpx.HTTPError, ValueError, KeyError, TypeError):
             raise SecurityError("identity_invalid") from None
 

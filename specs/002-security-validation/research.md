@@ -1,6 +1,6 @@
 # Research: Observable, repeatable security validation
 
-Owner: mcteer. Reviewed: 2026-10-09. Research used current installed source and primary
+Owner: maintainer. Reviewed: 2026-10-09. Research used current installed source and primary
 provider documentation. No live service calls or configuration changes were made.
 The operator reports the Logfire write token is now present in private configuration;
 its validity, destination and actual trace receipt remain implementation-time checks.
@@ -127,7 +127,7 @@ existence or bind them to a revision. Feature 002 closes that gap without breaki
 An evidence digest detects edits relative to the record; it is not a signed provenance guarantee.
 **Alternatives:** Replacing all criterion IDs breaks existing evidence. Automatically promoting
 observations or using alternative to bypass absent live proof violates the constitution.
-**Sources:** src/pocdantic/evidence.py, specs/001-secure-agent-runtime/acceptance.json and constitution.
+**Sources:** src/agent/evidence.py, specs/001-secure-agent-runtime/acceptance.json and constitution.
 
 ## R6 — Fixed scenarios and bounded private storage
 

@@ -13,12 +13,34 @@ ROOT_FILES = {
 }
 
 
+def generated_private(name: str) -> bool:
+    p = PurePosixPath(name)
+    if p.name in {
+        "run.json",
+        "events.jsonl",
+        "bindings.jsonl",
+        "delivery.json",
+        "integrity.json",
+        "definitions.json",
+        "report.json",
+        "report.md",
+    }:
+        return True
+    return p.suffix in {".json", ".md", ".raw", ".jsonl"} and p.name.startswith(
+        ("source-", "artifact-", "observation-", "review-", "report-", "transaction-")
+    )
+
+
 def publishable(name: str) -> bool:
     p = PurePosixPath(name)
+    if generated_private(name):
+        return False
     if name in ROOT_FILES:
         return True
     if name.startswith("specs/"):
         return p.suffix in {".md", ".json"} and not {"private", "evidence"} & set(p.parts)
+    if name in {"docs/usage.md", "docs/configuration.md"}:
+        return True
     if name.startswith("docs/adr/"):
         return p.suffix == ".md"
     if name.startswith(".specify/templates/"):
@@ -32,7 +54,8 @@ def publishable(name: str) -> bool:
         ".specify/THIRD_PARTY_LICENSE.txt",
     }:
         return True
-    if name.startswith("src/pocdantic/"):
+    # Keep the former package path eligible for immutable Git-history checks.
+    if name.startswith(("src/agent/", "src/pocdantic/")):
         return p.suffix == ".py"
     if name.startswith("tests/"):
         return p.suffix == ".py"

@@ -1,6 +1,6 @@
 # ADR 0002: Trusted identity, authorization and effects
 
-Status: Accepted. Date: 2026-10-09. Owner: mcteer.
+Status: Accepted. Date: 2026-10-09. Owner: maintainer.
 
 ## Context
 

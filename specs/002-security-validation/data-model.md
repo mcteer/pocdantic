@@ -1,6 +1,6 @@
 # Data model: Observable, repeatable security validation
 
-Owner: mcteer. All models are strict (unknown fields rejected), versioned and immutable after
+Owner: maintainer. All models are strict (unknown fields rejected), versioned and immutable after
 validation. Runtime objects may hold secrets privately; none of these public/event models may.
 Explicit private model fields use repr=False and are never serialized by the public projection.
 JSON digests use UTF-8, sorted keys and compact separators; raw-file digests hash original bytes.

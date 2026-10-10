@@ -1,6 +1,6 @@
 # Contributing to PoCdantic
 
-PoCdantic is maintained by **mcteer**. Contributions should preserve its reusable,
+PoCdantic is maintained by the project maintainers. Contributions should preserve its reusable,
 identity-aware agent harness and keep customer configuration outside the code.
 
 ## Before starting
@@ -28,7 +28,7 @@ from the default branch. Use your normal Git identity.
 ~~~sh
 uv sync --locked --extra server --extra logfire --extra postgres --group dev
 scripts/install-hooks.sh
-uv run pocdantic demo
+uv run agent demo
 ~~~
 
 Tests and the offline demo need no customer credentials. Install provider extras only
@@ -104,7 +104,7 @@ uv run python scripts/check_gates.py --runtime-only
 uv run ruff check .
 uv run ruff format --check .
 uv run pytest -q
-uv run pocdantic demo
+uv run agent demo
 uv build
 uv run python scripts/check_distribution.py
 ~~~
@@ -149,3 +149,18 @@ These practices are informed by [NIST SSDF](https://csrc.nist.gov/pubs/sp/800/21
 [GitHub protected branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches)
 and [GitHub Spec Kit](https://github.com/github/spec-kit).
 They do not constitute a compliance certification.
+
+## Validation harness checks
+
+Run `uv run agent validate run` alongside the existing offline demo. CI also exercises ten
+consecutive unique runs (at most 30 seconds each), two synthetic profile configurations and
+10,000-event report assembly (at most five seconds excluding I/O). Tests deny network with poisoned
+provider/OTel environment variables. No live credentials or phone requests belong in CI.
+
+Keep generated source/transaction evidence, journals, reports and review records beneath ignored
+`.local/`; publication guards reject these files even when force-added elsewhere. Review only a
+sanitized validation ledger and prospective diff. Explicit local reviews are evidence-digest bound
+and do not authenticate the reviewer or automatically update acceptance.json. Unsupported native
+linkage remains blocked. Changes preserve CLI/runtime contracts; telemetry hosts now inject the
+returned provider object rather than depending on global Logfire configuration. No new dependency
+is introduced by feature 002. The optional live adapters and exporter still use existing extras.

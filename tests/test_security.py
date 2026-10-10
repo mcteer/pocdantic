@@ -3,9 +3,9 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from pocdantic.approval import ApprovalStore
-from pocdantic.schemas import Action, Principal
-from pocdantic.security import Containment, Policy, SecurityError
+from agent.approval import ApprovalStore
+from agent.schemas import Action, Principal
+from agent.security import Containment, Policy, SecurityError
 
 
 def principal():
@@ -74,7 +74,7 @@ def test_approval_mutation_replay_expiry_and_wrong_user():
 
 
 def test_request_cannot_supply_authority():
-    from pocdantic.schemas import RequestEnvelope
+    from agent.schemas import RequestEnvelope
 
     with pytest.raises(ValidationError):
         RequestEnvelope.model_validate(

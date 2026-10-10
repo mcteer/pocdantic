@@ -5,10 +5,10 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
-from pocdantic.approval import ApprovalStore
-from pocdantic.schemas import Action
-from pocdantic.security import SecurityError
-from pocdantic.verify import VerifyClient
+from agent.approval import ApprovalStore
+from agent.schemas import Action
+from agent.security import SecurityError
+from agent.verify import VerifyClient
 
 
 def action():

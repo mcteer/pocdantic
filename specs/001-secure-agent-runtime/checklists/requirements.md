@@ -1,6 +1,6 @@
 # Specification Quality Checklist
 
-Purpose: Review requirements before implementation. Owner: mcteer. Date: 2026-10-09.
+Purpose: Review requirements before implementation. Owner: maintainer. Date: 2026-10-09.
 
 - [x] User journeys and independent acceptance scenarios are specified.
 - [x] Security boundaries and negative cases are testable.

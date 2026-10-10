@@ -1,10 +1,12 @@
 import asyncio
 import json
 import time
+from dataclasses import replace
 from importlib.resources import files
 from pathlib import Path
 from uuid import uuid4
 
+from opentelemetry.context import Context
 from pydantic import TypeAdapter
 from pydantic_ai import Agent
 from pydantic_ai.messages import ModelMessage
@@ -13,16 +15,22 @@ from pydantic_ai.usage import UsageLimits
 
 from .approval import ApprovalStore
 from .capabilities import CAPABILITY_FACTORIES, ContainmentCapability, Dependencies
+from .observability import BoundObserver, NullSink
 from .schemas import AgentDefinition, AgentOutput, AgentResponse, Principal, RequestEnvelope
 from .security import Audit, Containment, Policy, SecurityError
 from .settings import Settings
-from .telemetry import safe_instrumentation
+from .telemetry import Telemetry, safe_instrumentation
 
 
 def load_definitions(path: str) -> dict[str, AgentDefinition]:
     profile = Path(path)
     if path == "config/agents.json" and not profile.is_file():
-        content = files("pocdantic").joinpath("default_agents.json").read_text()
+        resource = files("agent").joinpath("default_agents.json")
+        content = (
+            resource.read_text()
+            if resource.is_file()
+            else (Path(__file__).parents[2] / "config/agents.json").read_text()
+        )
     else:
         content = profile.read_text()
     definitions = TypeAdapter(list[AgentDefinition]).validate_python(json.loads(content))
@@ -45,7 +53,7 @@ def load_definitions(path: str) -> dict[str, AgentDefinition]:
 
 
 def build_agent(
-    definition: AgentDefinition, model: str | Model
+    definition: AgentDefinition, model: str | Model, telemetry=None
 ) -> Agent[Dependencies, AgentOutput]:
     return Agent(
         model,
@@ -58,7 +66,7 @@ def build_agent(
         model_settings={"max_tokens": 1000},
         capabilities=[
             *(CAPABILITY_FACTORIES[name]() for name in definition.capabilities),
-            safe_instrumentation(),
+            safe_instrumentation(telemetry),
             ContainmentCapability(),
         ],
     )
@@ -72,12 +80,23 @@ class Runtime:
         model: str | Model | None = None,
         database_reader=None,
         approval_backend=None,
+        telemetry=None,
+        event_sink=None,
+        definition_ref=None,
+        validation_id=None,
+        observation_id=None,
     ):
         self.settings = settings
+        self.telemetry = telemetry or Telemetry()
+        self.event_sink = event_sink or NullSink()
+        self.validation_id, self.observation_id = validation_id, observation_id
+        refs = {}
+        self.definition_ref = definition_ref or (lambda name: refs.setdefault(name, uuid4()))
         self.definitions = load_definitions(settings.profiles_file)
         selected = model or settings.model
         self.agents = {
-            key: build_agent(definition, selected) for key, definition in self.definitions.items()
+            key: build_agent(definition, selected, self.telemetry)
+            for key, definition in self.definitions.items()
         }
         self.policy, self.containment, self.audit = Policy(), Containment(), Audit()
         self.approvals = ApprovalStore()
@@ -97,7 +116,17 @@ class Runtime:
             if profile == definition or definition == self.settings.workload_definition:
                 task.cancel()
 
-    async def run(
+    async def run(self, request, principal, **kwargs):
+        tracer = self.telemetry.provider.get_tracer("agent")
+        attributes = {"request_id": str(request.request_id)}
+        if self.validation_id:
+            attributes["validation_id"] = str(self.validation_id)
+        if self.observation_id:
+            attributes["observation_id"] = str(self.observation_id)
+        with tracer.start_as_current_span("run", context=Context(), attributes=attributes):
+            return await self._run(request, principal, **kwargs)
+
+    async def _run(
         self,
         request: RequestEnvelope,
         principal: Principal,
@@ -106,11 +135,33 @@ class Runtime:
         message_history: list[ModelMessage] | None = None,
     ) -> AgentResponse:
         run_id = uuid4()
+        from opentelemetry.trace import get_current_span
+
+        get_current_span().set_attribute("run_id", str(run_id))
         limits = UsageLimits(
             request_limit=self.settings.request_limit,
             tool_calls_limit=self.settings.tool_calls_limit,
             output_tokens_limit=self.settings.output_tokens_limit,
         )
+        observer = BoundObserver(
+            self.event_sink,
+            request.request_id,
+            run_id,
+            self.definition_ref(request.profile),
+            self.definition_ref(self.settings.workload_definition),
+            validation_id=self.validation_id,
+            observation_id=self.observation_id,
+            telemetry=self.telemetry,
+            definition_ref=self.definition_ref,
+        )
+        get_current_span().set_attributes(
+            {"agent_ref": str(observer.agent_ref), "workload_ref": str(observer.workload_ref)}
+        )
+        selected_reader = database_reader or self.database_reader
+        from .broker import DatabaseBroker
+
+        if isinstance(selected_reader, DatabaseBroker):
+            selected_reader = replace(selected_reader, operation_observer=observer)
         deps = Dependencies(
             principal,
             request.request_id,
@@ -126,7 +177,8 @@ class Runtime:
             policy_role=self.definitions[request.profile].policy_role
             if request.profile in self.definitions
             else None,
-            database_reader=database_reader or self.database_reader,
+            database_reader=selected_reader,
+            observer=observer,
             approval_backend=self.approval_backend,
         )
         common = {
@@ -141,6 +193,7 @@ class Runtime:
                 raise SecurityError("profile_unknown")
             self.containment.check(self.settings.workload_definition, run_id)
             self.containment.check(request.profile, run_id)
+            deps.record("identity", "verified")
             deps.record("run", "started")
             self._active[run_id] = (request.profile, asyncio.current_task())
             async with asyncio.timeout(self.settings.timeout_seconds):
@@ -160,6 +213,8 @@ class Runtime:
             if message_history is not None:
                 message_history[:] = result.all_messages()
             deps.record("run", "completed")
+            if observer.failed:
+                return AgentResponse(**common, status="failed", error_code="storage_error")
             return AgentResponse(**common, status="completed", output=result.output)
         except SecurityError as error:
             deps.record("run", "denied")
@@ -170,6 +225,7 @@ class Runtime:
             except SecurityError:
                 deps.record("run", "contained")
                 return AgentResponse(**common, status="denied", error_code="contained")
+            deps.record("run", "interrupted")
             raise
         except Exception:
             deps.record("run", "failed")

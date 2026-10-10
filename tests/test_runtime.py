@@ -4,11 +4,11 @@ import pytest
 from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
 
-from pocdantic.demo import model as demo_model
-from pocdantic.runtime import Runtime, load_definitions
-from pocdantic.schemas import Principal, RequestEnvelope
-from pocdantic.security import SecurityError
-from pocdantic.settings import Settings
+from agent.demo import model as demo_model
+from agent.runtime import Runtime, load_definitions
+from agent.schemas import Principal, RequestEnvelope
+from agent.security import SecurityError
+from agent.settings import Settings
 
 
 def user(scopes=frozenset({"tickets:read"})):

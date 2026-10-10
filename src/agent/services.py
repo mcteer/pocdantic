@@ -22,9 +22,11 @@ class VerifyApprovalBackend:
             raise SecurityError("verify_approval_configuration_missing")
         if deps.principal.subject != s.verify_user_id:
             raise SecurityError("verify_approver_mapping_mismatch")
-        async with httpx.AsyncClient(timeout=15, follow_redirects=False) as http:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=False, trust_env=False) as http:
             token = await OAuthClient(oauth_config(s, api=True), http).client_credentials()
-            client = VerifyClient(s.verify_tenant_url, token.access_token, http)
+            client = VerifyClient(
+                s.verify_tenant_url, token.access_token, http, operation_observer=deps.observer
+            )
             device = await client.request(
                 "GET", "v1.0/authenticators/" + identifier(s.verify_authenticator_id)
             )

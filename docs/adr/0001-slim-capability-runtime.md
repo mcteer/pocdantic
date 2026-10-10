@@ -1,6 +1,6 @@
 # ADR 0001: Slim dependencies and native capabilities
 
-Status: Accepted. Date: 2026-10-09. Owner: mcteer.
+Status: Accepted. Date: 2026-10-09. Owner: maintainer.
 
 ## Context
 

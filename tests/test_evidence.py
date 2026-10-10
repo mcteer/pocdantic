@@ -3,7 +3,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from pocdantic.evidence import CRITERIA, Evidence, load_evidence
+from agent.evidence import CRITERIA, Evidence, load_evidence
 
 
 def test_local_results_cannot_pass_live_acceptance():

@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
 
-from publish_policy import publishable
+from publish_policy import generated_private, publishable
 
 
 def git(*args, check=True):
@@ -17,7 +17,8 @@ def git(*args, check=True):
 def forbidden(name):
     p = PurePosixPath(name)
     return (
-        "design" in p.parts
+        generated_private(name)
+        or "design" in p.parts
         or "chat" in p.parts
         or ("specs" in p.parts and bool({"private", "evidence"} & set(p.parts)))
         or ".local" in p.parts

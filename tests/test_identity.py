@@ -7,8 +7,8 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from pydantic import SecretStr
 
-from pocdantic.oauth import JWTVerifier, OAuthClient, OAuthConfig
-from pocdantic.security import SecurityError
+from agent.oauth import JWTVerifier, OAuthClient, OAuthConfig
+from agent.security import SecurityError
 
 
 @pytest.fixture
@@ -142,8 +142,8 @@ async def test_discovery_cannot_redirect_credentials_to_other_host():
 
 
 def test_verify_administrative_provider_is_independent_of_agent_provider():
-    from pocdantic.probe import oauth_config
-    from pocdantic.settings import Settings
+    from agent.probe import oauth_config
+    from agent.settings import Settings
 
     settings = Settings(
         _env_file=None,

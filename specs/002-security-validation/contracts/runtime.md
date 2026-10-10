@@ -1,6 +1,6 @@
 # Public contracts: validation CLI and evidence
 
-Owner: mcteer. Proposed interfaces for implementation; these commands do not yet exist.
+Owner: maintainer. Proposed interfaces for implementation; these commands do not yet exist.
 Version 1 is additive to existing run/batch/demo/probe/push-demo/serve behavior.
 
 ## Commands
@@ -56,11 +56,11 @@ projection. Cleanup-failure scenarios distinguish an expected test assertion fro
 ## Configuration and credentials
 
 Use existing Settings and existing environment variables for live identity, model, Vault, Verify
-and database. POCDANTIC_BEARER_TOKEN supplies an externally acquired user access token; no CLI
+and database. BEARER_TOKEN supplies an externally acquired user access token; no CLI
 argument or report carries the token. The operator supplies a fresh token for a later run if it
 expires. No dependency on chat/ or its diagnostic socket is permitted.
 
-LOGFIRE_TOKEN enables live export with the existing optional extra. Add POCDANTIC_LOGFIRE_BASE_URL
+LOGFIRE_TOKEN enables live export with the existing optional extra. Add LOGFIRE_BASE_URL
 as an optional validated HTTPS service endpoint; token-inferred region is the default. An explicit
 endpoint override is an operator trust decision and must reject userinfo, query and fragment.
 Do not follow redirects carrying credentials. No read token is needed for this feature's manual

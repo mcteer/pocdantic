@@ -4,7 +4,7 @@ import json
 import re
 from pathlib import Path
 
-from pocdantic.evidence import load_evidence
+from agent.evidence import load_evidence
 
 
 def check_feature(root: Path):
@@ -51,8 +51,8 @@ def main():
     if args.runtime_only:
         if args.all_features or args.feature_directory:
             parser.error("--runtime-only cannot be combined with feature selection")
-        from pocdantic.runtime import load_definitions
-        from pocdantic.settings import Settings
+        from agent.runtime import load_definitions
+        from agent.settings import Settings
 
         load_definitions(Settings(_env_file=None).profiles_file)
         print("Runtime configuration gate passed")

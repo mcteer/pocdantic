@@ -1,0 +1,229 @@
+{
+  "schema_version": 1,
+  "suites": [
+    {
+      "label": "offline-security",
+      "mode": "offline",
+      "interactive": false,
+      "scenarios": [
+        {
+          "label": "delegated-read",
+          "factory": "delegated-read",
+          "expected_assertions": [
+            "delegated-read"
+          ],
+          "required_capabilities": [
+            "delegate-tickets",
+            "ticket-read"
+          ],
+          "criteria": [
+            "UC1-01"
+          ],
+          "required_sources": []
+        },
+        {
+          "label": "policy-denial",
+          "factory": "policy-denial",
+          "expected_assertions": [
+            "policy-denial"
+          ],
+          "required_capabilities": [
+            "ticket-read"
+          ],
+          "criteria": [
+            "UC1-04"
+          ],
+          "required_sources": []
+        },
+        {
+          "label": "injection-denial",
+          "factory": "injection-denial",
+          "expected_assertions": [
+            "injection-denial"
+          ],
+          "required_capabilities": [
+            "ticket-read"
+          ],
+          "criteria": [
+            "UC1-04"
+          ],
+          "required_sources": []
+        },
+        {
+          "label": "approval-denied",
+          "factory": "approval-denied",
+          "expected_assertions": [
+            "approval-denied"
+          ],
+          "required_capabilities": [
+            "simulated-infrastructure"
+          ],
+          "criteria": [
+            "UC2-02"
+          ],
+          "required_sources": []
+        },
+        {
+          "label": "approval-expired",
+          "factory": "approval-expired",
+          "expected_assertions": [
+            "approval-expired"
+          ],
+          "required_capabilities": [
+            "simulated-infrastructure"
+          ],
+          "criteria": [
+            "UC2-02"
+          ],
+          "required_sources": []
+        },
+        {
+          "label": "approval-replay",
+          "factory": "approval-replay",
+          "expected_assertions": [
+            "approval-replay"
+          ],
+          "required_capabilities": [
+            "simulated-infrastructure"
+          ],
+          "criteria": [
+            "UC2-02"
+          ],
+          "required_sources": []
+        },
+        {
+          "label": "approval-mutated",
+          "factory": "approval-mutated",
+          "expected_assertions": [
+            "approval-mutated"
+          ],
+          "required_capabilities": [
+            "simulated-infrastructure"
+          ],
+          "criteria": [
+            "UC2-02"
+          ],
+          "required_sources": []
+        },
+        {
+          "label": "cleanup-failure",
+          "factory": "cleanup-failure",
+          "expected_assertions": [
+            "cleanup-failure"
+          ],
+          "required_capabilities": [],
+          "criteria": [
+            "UC1-02"
+          ],
+          "required_sources": []
+        },
+        {
+          "label": "cleanup-cancelled",
+          "factory": "cleanup-cancelled",
+          "expected_assertions": [
+            "cleanup-cancelled"
+          ],
+          "required_capabilities": [],
+          "criteria": [
+            "UC1-02"
+          ],
+          "required_sources": []
+        }
+      ],
+      "required_checks": [
+        "execution",
+        "integrity"
+      ]
+    },
+    {
+      "label": "live-database",
+      "mode": "live",
+      "interactive": false,
+      "scenarios": [
+        {
+          "label": "delegated-database-read",
+          "factory": "delegated-database-read",
+          "expected_assertions": [
+            "delegated-database-read"
+          ],
+          "required_capabilities": [
+            "database-read"
+          ],
+          "criteria": [
+            "UC1-01",
+            "UC1-02",
+            "UC1-05"
+          ],
+          "required_sources": [
+            "vault"
+          ]
+        },
+        {
+          "label": "actor-only-denial",
+          "factory": "actor-only-denial",
+          "expected_assertions": [
+            "actor-only-denial"
+          ],
+          "required_capabilities": [],
+          "criteria": [
+            "UC1-04"
+          ],
+          "required_sources": [
+            "vault"
+          ]
+        }
+      ],
+      "required_checks": [
+        "execution",
+        "cleanup"
+      ]
+    },
+    {
+      "label": "live-phone",
+      "mode": "live",
+      "interactive": true,
+      "scenarios": [
+        {
+          "label": "phone-approved",
+          "factory": "phone-approved",
+          "expected_assertions": [
+            "phone-approved"
+          ],
+          "required_capabilities": [
+            "simulated-infrastructure"
+          ],
+          "criteria": [
+            "UC2-01",
+            "UC2-02",
+            "UC2-03"
+          ],
+          "required_sources": [
+            "verify"
+          ]
+        },
+        {
+          "label": "phone-denied",
+          "factory": "phone-denied",
+          "expected_assertions": [
+            "phone-denied"
+          ],
+          "required_capabilities": [
+            "simulated-infrastructure"
+          ],
+          "criteria": [
+            "UC2-01",
+            "UC2-02",
+            "UC2-03"
+          ],
+          "required_sources": [
+            "verify"
+          ]
+        }
+      ],
+      "required_checks": [
+        "execution",
+        "cleanup"
+      ]
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 import hashlib
 from collections.abc import Awaitable, Callable
+from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
@@ -9,6 +10,7 @@ from pydantic_ai.capabilities import AbstractCapability, Capability
 from pydantic_ai.usage import UsageLimits
 
 from .approval import Approval, ApprovalStore, action_digest
+from .observability import BoundObserver
 from .schemas import Action, AgentOutput, Principal, Ticket, TicketId, WriteResult
 from .security import Audit, Containment, Policy, SecurityError
 
@@ -29,6 +31,7 @@ class Dependencies:
     approvals: ApprovalStore
     child: "Agent[Dependencies, AgentOutput] | None" = None
     limits: UsageLimits | None = None
+    observer: BoundObserver | None = field(default=None, repr=False)
     parent_run_id: UUID | None = None
     delegation_depth: int = 0
     policy_role: str | None = None
@@ -54,6 +57,8 @@ class Dependencies:
         self.record("policy", "allowed")
 
     def record(self, event: str, outcome: str) -> None:
+        if self.observer:
+            self.observer.record(event, outcome)
         self.audit.record(
             event,
             request_id=self.request_id,
@@ -108,19 +113,39 @@ def delegate_tickets() -> Capability[Dependencies]:
             child=None,
             policy_role="ticket-reader",
         )
+        if deps.observer:
+            child_deps = replace(
+                child_deps,
+                observer=replace(
+                    deps.observer,
+                    run_id=child_deps.run_id,
+                    parent_run_id=deps.run_id,
+                    agent_ref=deps.observer.definition_ref("ticket-reader")
+                    if deps.observer.definition_ref
+                    else deps.observer.agent_ref,
+                ),
+            )
         child_deps.record("delegation", "started")
-        result = await deps.child.run(
-            f"Retrieve and summarize ticket {ticket_id}.",
-            deps=child_deps,
-            usage=ctx.usage,
-            usage_limits=deps.limits,
-            metadata={
-                "request_id": str(deps.request_id),
-                "run_id": str(child_deps.run_id),
-                "parent_run_id": str(deps.run_id),
-                "agent_definition": "ticket-reader",
-            },
-        )
+        try:
+            scope = (
+                child_deps.observer.scope("delegation") if child_deps.observer else nullcontext()
+            )
+            with scope:
+                result = await deps.child.run(
+                    f"Retrieve and summarize ticket {ticket_id}.",
+                    deps=child_deps,
+                    usage=ctx.usage,
+                    usage_limits=deps.limits,
+                    metadata={
+                        "request_id": str(deps.request_id),
+                        "run_id": str(child_deps.run_id),
+                        "parent_run_id": str(deps.run_id),
+                        "agent_definition": "ticket-reader",
+                    },
+                )
+        except BaseException:
+            child_deps.record("delegation", "failed")
+            raise
         child_deps.record("delegation", "completed")
         deps.containment.check(deps.workload_definition, deps.run_id)
         return result.output
@@ -146,7 +171,9 @@ def simulated_infrastructure() -> Capability[Dependencies]:
         if ctx.deps.approval_backend is not None:
             approved = await ctx.deps.approval_backend(ctx.deps, approval, action)
             if not approved:
+                ctx.deps.record("approval", "denied")
                 raise SecurityError("approval_denied_or_expired")
+            ctx.deps.record("approval", "completed")
             return execute_simulated_write(ctx.deps, approval.id, action)
         return WriteResult(
             status="approval_required", approval_id=approval.id, action_digest=approval.digest

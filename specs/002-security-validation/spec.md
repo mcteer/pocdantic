@@ -3,7 +3,7 @@
 **Feature Branch**: `feature/002-security-validation`
 **Created**: 2026-10-09
 **Status**: Planned; tasks generated; awaiting implementation
-**Owner**: mcteer
+**Owner**: maintainer
 **Input**: Turn the completed secure agent harness into a repeatable customer demonstration with live telemetry proof, security scenarios, cross-system audit correlation and reviewer-controlled acceptance reporting.
 
 ## Context and scope

@@ -13,9 +13,9 @@ import psycopg
 from dotenv import dotenv_values
 from pydantic import SecretStr
 
-from pocdantic.security import SecurityError
-from pocdantic.settings import Settings
-from pocdantic.vault import VaultClient, read_postgres
+from agent.security import SecurityError
+from agent.settings import Settings
+from agent.vault import VaultClient, read_postgres
 
 CONNECTION = "pocdantic-postgres"
 ROLE = "poc-readonly"
@@ -249,11 +249,11 @@ async def main():
     file.chmod(0o600)
     config = directory / "database-runtime.env"
     config.write_text(
-        f"POCDANTIC_DATABASE_HOST={db['host']}\n"
-        f"POCDANTIC_DATABASE_PORT={db['port']}\n"
-        f"POCDANTIC_DATABASE_NAME={db['database']}\n"
-        f"POCDANTIC_DATABASE_USERNAME_SUFFIX={db['suffix']}\n"
-        f"POCDANTIC_DATABASE_SSLROOTCERT={ca}\n"
+        f"DATABASE_HOST={db['host']}\n"
+        f"DATABASE_PORT={db['port']}\n"
+        f"DATABASE_NAME={db['database']}\n"
+        f"DATABASE_USERNAME_SUFFIX={db['suffix']}\n"
+        f"DATABASE_SSLROOTCERT={ca}\n"
     )
     config.chmod(0o600)
     print(json.dumps(evidence))

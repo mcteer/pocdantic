@@ -1,6 +1,6 @@
 # Validation summary
 
-Owner: mcteer. Observed: 2026-10-09.
+Owner: maintainer. Observed: 2026-10-09.
 
 ## Implementation result
 

@@ -16,7 +16,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from dotenv import dotenv_values
 
-from pocdantic.security import SecurityError
+from agent.security import SecurityError
 
 LOCAL = Path(".local")
 ENV = LOCAL / "lab.env"

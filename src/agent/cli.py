@@ -41,6 +41,10 @@ async def authenticated_principal(settings: Settings) -> Principal:
 
 
 async def execute(args) -> int:
+    if args.command == "validate":
+        from .validation.commands import execute_validation
+
+        return await execute_validation(args)
     settings = Settings()
     if args.command == "push-demo":
         from .push_demo import push_demo
@@ -68,12 +72,13 @@ async def execute(args) -> int:
         print(json.dumps({"mode": "synthetic", "audit": runtime.audit.events}))
         return 0 if result.status == "completed" else 1
     principal = await authenticated_principal(settings)
-    configure_telemetry(settings)
+    telemetry = configure_telemetry(settings)
     from .broker import DatabaseBroker
     from .services import VerifyApprovalBackend
 
     runtime = Runtime(
         settings,
+        telemetry=telemetry,
         model=selected_model(settings),
         database_reader=DatabaseBroker(settings, settings.bearer_token, principal.subject)
         if settings.database_host
@@ -118,6 +123,9 @@ def main() -> None:
     run.add_argument("--profile", default="parent")
     batch = sub.add_parser("batch")
     batch.add_argument("--input", required=True)
+    from .validation.commands import add_validation_parser
+
+    add_validation_parser(sub)
     args = parser.parse_args()
     try:
         if args.command == "serve":

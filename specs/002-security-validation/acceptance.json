@@ -2,7 +2,7 @@
   {
     "criterion": "UC1-01",
     "status": "blocked",
-    "owner": "mcteer / integration owner",
+    "owner": "integration owner",
     "reason": "002 evidence correlation and explicit review pending. Baseline: Source-system and trace secret review pending",
     "source": "none",
     "references": []
@@ -10,7 +10,7 @@
   {
     "criterion": "UC1-02",
     "status": "blocked",
-    "owner": "mcteer / integration owner",
+    "owner": "integration owner",
     "reason": "002 evidence correlation and explicit review pending. Baseline: Live signed human/actor exchange, exact read/cleanup grants, database read and lease removal proven; acceptance review pending",
     "source": "none",
     "references": []
@@ -18,7 +18,7 @@
   {
     "criterion": "UC1-03",
     "status": "blocked",
-    "owner": "mcteer / integration owner",
+    "owner": "integration owner",
     "reason": "002 evidence correlation and explicit review pending. Baseline: Live SELECT-only grant and write denial evidence captured; acceptance review pending",
     "source": "none",
     "references": []
@@ -26,7 +26,7 @@
   {
     "criterion": "UC1-04",
     "status": "blocked",
-    "owner": "mcteer / integration owner",
+    "owner": "integration owner",
     "reason": "002 evidence correlation and explicit review pending. Baseline: Live unrelated-path and actor-only denials captured; acceptance review pending",
     "source": "none",
     "references": []
@@ -34,7 +34,7 @@
   {
     "criterion": "UC1-05",
     "status": "blocked",
-    "owner": "mcteer / integration owner",
+    "owner": "integration owner",
     "reason": "002 evidence correlation and explicit review pending. Baseline: Vault source audit correlation pending",
     "source": "none",
     "references": []
@@ -42,7 +42,7 @@
   {
     "criterion": "UC2-01",
     "status": "blocked",
-    "owner": "mcteer / integration owner",
+    "owner": "integration owner",
     "reason": "002 evidence correlation and explicit review pending. Baseline: Parent write lineage and live authorization pending",
     "source": "none",
     "references": []
@@ -50,7 +50,7 @@
   {
     "criterion": "UC2-02",
     "status": "blocked",
-    "owner": "mcteer / integration owner",
+    "owner": "integration owner",
     "reason": "002 evidence correlation and explicit review pending. Baseline: Live action-bound phone approval for simulated restart proven; acceptance review pending",
     "source": "none",
     "references": []
@@ -58,7 +58,7 @@
   {
     "criterion": "UC2-03",
     "status": "blocked",
-    "owner": "mcteer / integration owner",
+    "owner": "integration owner",
     "reason": "002 evidence correlation and explicit review pending. Baseline: Reviewed live audit export pending",
     "source": "none",
     "references": []
@@ -66,7 +66,7 @@
   {
     "criterion": "UC3-01",
     "status": "blocked",
-    "owner": "mcteer / integration owner",
+    "owner": "integration owner",
     "reason": "002 evidence correlation and explicit review pending. Baseline: External JWT blocking/revocation semantics pending",
     "source": "none",
     "references": []
@@ -74,7 +74,7 @@
   {
     "criterion": "UC3-02",
     "status": "blocked",
-    "owner": "mcteer / integration owner",
+    "owner": "integration owner",
     "reason": "002 evidence correlation and explicit review pending. Baseline: Live session suspension and notification pending",
     "source": "none",
     "references": []
@@ -82,7 +82,7 @@
   {
     "criterion": "UC3-03",
     "status": "blocked",
-    "owner": "mcteer / integration owner",
+    "owner": "integration owner",
     "reason": "002 evidence correlation and explicit review pending. Baseline: VIP-originated secret remediation pending",
     "source": "none",
     "references": []
@@ -90,7 +90,7 @@
   {
     "criterion": "UC3-04",
     "status": "blocked",
-    "owner": "mcteer / integration owner",
+    "owner": "integration owner",
     "reason": "002 evidence correlation and explicit review pending. Baseline: Measured live remediation latency pending",
     "source": "none",
     "references": []
@@ -98,7 +98,7 @@
   {
     "criterion": "UC4-01",
     "status": "blocked",
-    "owner": "mcteer / integration owner",
+    "owner": "integration owner",
     "reason": "002 evidence correlation and explicit review pending. Baseline: OAuth entity aliases and registry configured; deployment-specific attested workload bootstrap and SVID pending",
     "source": "none",
     "references": []
@@ -106,7 +106,7 @@
   {
     "criterion": "UC4-02",
     "status": "blocked",
-    "owner": "mcteer / integration owner",
+    "owner": "integration owner",
     "reason": "002 evidence correlation and explicit review pending. Baseline: Live Vault ceiling enforcement pending",
     "source": "none",
     "references": []
@@ -114,7 +114,7 @@
   {
     "criterion": "UC4-03",
     "status": "blocked",
-    "owner": "mcteer / integration owner",
+    "owner": "integration owner",
     "reason": "002 evidence correlation and explicit review pending. Baseline: Actual pre-enrollment VIP observation pending",
     "source": "none",
     "references": []

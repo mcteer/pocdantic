@@ -1,14 +1,14 @@
 # Quickstart validation guide
 
-Owner: mcteer. These are the planned 002 interfaces, to run after implementation.
+Owner: maintainer. These are the planned 002 interfaces, to run after implementation.
 Do not execute them as part of the planning handoff. All live work uses authorized PoC resources.
 
 ## 1. Offline software proof
 
 ```sh
 uv sync --locked --group dev
-uv run pocdantic validate list
-uv run pocdantic validate run
+uv run agent validate list
+uv run agent validate run
 uv run pytest -q
 uv run ruff check .
 uv run ruff format --check .
@@ -44,12 +44,12 @@ not prove receipt by a remote project.
 Install only the required configured model-provider extra alongside logfire and postgres.
 Keep identity, Vault, database settings and LOGFIRE_TOKEN in .env.local. The token has been supplied
 for the current workspace; do not copy it into this document or any command argument. Obtain a
-fresh signed user access token through an existing approved host and supply POCDANTIC_BEARER_TOKEN
+fresh signed user access token through an existing approved host and supply BEARER_TOKEN
 privately. The published harness does not depend on the ignored chat or its control socket.
 
 ```sh
 uv sync --locked --extra google --extra logfire --extra postgres --group dev
-uv run pocdantic validate run --suite live-database --mode live
+uv run agent validate run --suite live-database --mode live
 ```
 
 Expected operational proof: genuine verified user/actor exchange, fixed SELECT, exact delegated
@@ -70,10 +70,10 @@ OAuth/actor linkage remains blocked even if other correlation succeeds.
 For each source use the corresponding form, replacing the synthetic UUID with the actual run ID:
 
 ```sh
-uv run pocdantic validate import --run 00000000-0000-4000-8000-000000000002 --source vault --input .local/validation-input/vault.jsonl --manifest .local/validation-input/vault-manifest.json
-uv run pocdantic validate import --run 00000000-0000-4000-8000-000000000002 --source verify --input .local/validation-input/verify.json --manifest .local/validation-input/verify-manifest.json
-uv run pocdantic validate import --run 00000000-0000-4000-8000-000000000002 --source logfire --input .local/validation-input/logfire.json --manifest .local/validation-input/logfire-manifest.json
-uv run pocdantic validate report --run 00000000-0000-4000-8000-000000000002
+uv run agent validate import --run 00000000-0000-4000-8000-000000000002 --source vault --input .local/validation-input/vault.jsonl --manifest .local/validation-input/vault-manifest.json
+uv run agent validate import --run 00000000-0000-4000-8000-000000000002 --source verify --input .local/validation-input/verify.json --manifest .local/validation-input/verify-manifest.json
+uv run agent validate import --run 00000000-0000-4000-8000-000000000002 --source logfire --input .local/validation-input/logfire.json --manifest .local/validation-input/logfire-manifest.json
+uv run agent validate report --run 00000000-0000-4000-8000-000000000002
 ```
 
 Expected: exact matches are linked; missing/unsupported/ambiguous/incomplete evidence remains
@@ -84,8 +84,8 @@ In tests, change one binding/digest and assert the relevant report check ceases 
 ## 5. Optional witnessed phone scenarios
 
 ```sh
-uv run pocdantic validate run --suite live-phone --scenario phone-approved --mode live --interactive
-uv run pocdantic validate run --suite live-phone --scenario phone-denied --mode live --interactive
+uv run agent validate run --suite live-phone --scenario phone-approved --mode live --interactive
+uv run agent validate run --suite live-phone --scenario phone-denied --mode live --interactive
 ```
 
 The authorized operator approves the first real phone request and denies the second. Expected:
@@ -100,8 +100,8 @@ Inspect the private source records and their provenance. Prepare a private revie
 the reviewer, rationale, current evidence revision, observed time and opaque references. Then:
 
 ```sh
-uv run pocdantic validate review --run 00000000-0000-4000-8000-000000000002 --criterion UC1-02 --decision pass --review-file .local/validation-input/review.json
-uv run pocdantic validate report --run 00000000-0000-4000-8000-000000000002
+uv run agent validate review --run 00000000-0000-4000-8000-000000000002 --criterion UC1-02 --decision pass --review-file .local/validation-input/review.json
+uv run agent validate report --run 00000000-0000-4000-8000-000000000002
 uv build
 uv run python scripts/check_distribution.py
 python3 scripts/check_privacy.py --history

@@ -9,9 +9,9 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from pydantic import SecretStr
 
-from pocdantic.broker import DatabaseBroker
-from pocdantic.security import SecurityError
-from pocdantic.settings import Settings
+from agent.broker import DatabaseBroker
+from agent.security import SecurityError
+from agent.settings import Settings
 
 
 @pytest.fixture
@@ -79,7 +79,7 @@ def chain(monkeypatch):
 
     original = httpx.AsyncClient
     monkeypatch.setattr(
-        "pocdantic.broker.httpx.AsyncClient",
+        "agent.broker.httpx.AsyncClient",
         lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs),
     )
 
@@ -92,7 +92,7 @@ def chain(monkeypatch):
             raise asyncio.CancelledError
         return [{"id": 1, "status": "healthy"}]
 
-    monkeypatch.setattr("pocdantic.broker.read_postgres", read)
+    monkeypatch.setattr("agent.broker.read_postgres", read)
     settings = Settings(
         _env_file=None,
         oauth_provider="generic",
@@ -245,3 +245,35 @@ async def test_cleanup_rejects_unexpected_lease_scope(chain, lease_id):
         await make_broker()(1)
     assert len(state["exchanges"]) == 1
     assert len(state["vault"]) == 1
+
+
+async def test_typed_bindings_precede_calls_and_sink_failure_preserves_revoke(chain):
+    from dataclasses import replace
+    from uuid import uuid4
+
+    from agent.observability import BoundObserver
+
+    state, factory = chain
+    events, bindings = [], []
+
+    class Sink:
+        def emit(self, event):
+            events.append(event)
+            if event.phase == "cleanup":
+                raise RuntimeError("PRIVATE_DIAGNOSTIC")
+
+        def bind(self, binding):
+            bindings.append(binding)
+
+    observer = BoundObserver(
+        Sink(), uuid4(), uuid4(), uuid4(), uuid4(), validation_id=uuid4(), observation_id=uuid4()
+    )
+    broker = replace(factory(), operation_observer=observer)
+    assert await broker(1) == [{"id": 1, "status": "healthy"}]
+    read, revoke = state["vault"]
+    assert read.headers["X-Correlation-Id"] != revoke.headers["X-Correlation-Id"]
+    vault = [b for b in bindings if b.source_kind == "vault"]
+    assert len({b.operation_ref for b in vault}) == 2
+    assert next(b for b in vault if b.phase == "credential").finished_at is None
+    assert {"identity", "credential", "database", "cleanup"} <= {e.phase for e in events}
+    assert observer.failed

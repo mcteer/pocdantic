@@ -1,6 +1,6 @@
 # Implementation Plan: Observable, repeatable security validation
 
-**Branch**: `feature/002-security-validation` | **Date**: 2026-10-09 | **Owner**: mcteer
+**Branch**: `feature/002-security-validation` | **Date**: 2026-10-09 | **Owner**: maintainer
 **Spec**: [spec.md](spec.md)
 **Status**: Design only; implementation is reserved for the next model/session.
 
@@ -154,7 +154,7 @@ from live validation tasks. This planning turn performs no live calls or impleme
 specs/002-security-validation/
   spec.md, plan.md, research.md, data-model.md, quickstart.md, tasks.md
   contracts/runtime.md, checklists/requirements.md, acceptance.json
-src/pocdantic/
+src/agent/
   observability.py
   validation/{__init__,models,catalog,store,runner,scenarios,importers,correlation,report,review}.py
   cli.py, telemetry.py, runtime.py, capabilities.py, broker.py, vault.py, services.py, verify.py
