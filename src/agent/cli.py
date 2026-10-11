@@ -60,6 +60,10 @@ async def execute(args) -> int:
     Runs and batches authenticate before creating trusted adapters. Live probe and
     push-demo commands can issue tokens or phone prompts; demo stays synthetic.
     """
+    if args.command == "closeout":
+        from .closeout.commands import execute_closeout
+
+        return await execute_closeout(args)
     if args.command == "govern":
         from .governance.commands import execute_governance
 
@@ -176,6 +180,9 @@ def main() -> None:
     from .governance.commands import add_governance_parser
 
     add_governance_parser(sub)
+    from .closeout.commands import add_closeout_parser
+
+    add_closeout_parser(sub)
     args = parser.parse_args()
     try:
         if args.command == "respond" and args.response_command == "serve":
