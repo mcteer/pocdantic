@@ -200,3 +200,35 @@ and do not authenticate the reviewer or automatically update acceptance.json. Un
 linkage remains blocked. Changes preserve CLI/runtime contracts; telemetry hosts now inject the
 returned provider object rather than depending on global Logfire configuration. No new dependency
 is introduced by feature 002. The optional live adapters and exporter still use existing extras.
+
+## Security regression checks
+
+After the locked development sync above, list the reviewed security catalog and run it:
+
+```sh
+uv run python scripts/run_security_regression.py list
+uv run python scripts/run_security_regression.py run
+uv run python scripts/run_security_regression.py run --case approval-effects --profile restricted
+uv run python scripts/run_security_regression.py report --run UUID
+```
+
+The full command runs both actual fixed policies: baseline permits POC/ALT ticket projects;
+restricted permits POC only. Partial selections explicitly leave omitted groups incomplete.
+Use the returned UUID to inspect a run. Changed source, tests, policies or lock bytes make
+previous evidence historical. Preserve failed and incomplete runs; inspection never resumes
+or erases them. Exit 0 means every selected software assertion passed on current bytes;
+1 means failure or integrity/drift contradiction; 2 means incomplete or unavailable checks;
+130 means interruption after bounded cleanup. Reproduce failures using their compiled commands.
+
+The contributor script adds no installed runtime command, dependency or environment setting.
+It snapshots maintained files, disables dotenv and provider dispatch before collection, and
+runs only compiled selectors. It bounds execution to 600 seconds with 10 seconds of drain.
+The guards protect trusted tests against accidental effects, not malicious Python executing
+with your user privileges. Browser and uncontrolled subprocess tests remain in full pytest/CI.
+Generated normalized records belong only in ignored `.local/security-regression/`; no raw
+pytest logs or parameter strings are retained. Never attach private generated records to a PR.
+
+All ten native checks stay blocked and name their provider owner, missing prerequisite,
+concrete action and expected recheck. Follow the existing separately authorized native workflows
+linked in [the contract](specs/009-security-regression/contracts/runtime.md#native-function-12-dispositions).
+Demo-tier native audit is unavailable; synthetic success cannot promote customer acceptance.

@@ -1,6 +1,10 @@
 """Synthetic signed identity fixtures; never load local/customer credentials."""
 
 import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import time
 from urllib.parse import parse_qs
 
@@ -212,7 +216,9 @@ def synthetic_runtime_dependency(monkeypatch, tmp_path):
 @pytest.fixture(autouse=True)
 def provider_network_boundary(request, monkeypatch):
     """Deny unmocked provider-test HTTP; fixture transports cannot fall through to sockets."""
-    if not request.node.path.name.startswith(("test_provider_", "test_governance_")):
+    if not request.node.path.name.startswith(
+        ("test_provider_", "test_governance_", "test_security_regression_")
+    ):
         return
 
     async def async_denied(*args, **kwargs):
@@ -230,7 +236,9 @@ def provider_network_boundary(request, monkeypatch):
 @pytest.fixture(autouse=True)
 def governance_isolation(request, monkeypatch, tmp_path):
     """Poison ambient credentials and default roots for all governance/browser fixtures."""
-    if "governance" not in request.node.path.name:
+    if "governance" not in request.node.path.name and not request.node.path.name.startswith(
+        "test_security_regression_"
+    ):
         return
     import agent.governance.commands as commands
     import agent.recovery.store as recovery

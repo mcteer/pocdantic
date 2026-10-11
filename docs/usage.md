@@ -745,3 +745,32 @@ updates `specs/008-shadow-agent-governance/acceptance.json`. See the
 CLI exits are 0 for completed/readable commands, 2 for invalid input, 3 for missing setup,
 stale review, holds or busy ownership, and 4 for failed/inconclusive/uncertain effects.
 Every closed error includes a concrete setup, review or recheck action.
+
+## Contributor security checks
+
+Use the repository-only matrix after the contributor setup; no live credentials are needed:
+
+```sh
+uv run python scripts/run_security_regression.py list
+uv run python scripts/run_security_regression.py run
+uv run python scripts/run_security_regression.py run --group F12-T4
+uv run python scripts/run_security_regression.py report --run UUID
+```
+
+The run prints an opaque UUID, full/partial scope, current/historical/unknown freshness,
+per-case and ten per-group outcomes, safe failure ownership and reproduction commands.
+The default executes every expanded selected test under baseline and restricted policies.
+A case or group selection is partial, even when every selected assertion passes.
+Report inspection never contacts providers, resumes work or changes acceptance. A locked run
+is busy; an abandoned run is incomplete. Keep its files and create a fresh run after repair.
+The listing and reports show concrete native prerequisites and rechecks; native proof requires
+the separately authorized [Function 12 workflows](../specs/009-security-regression/contracts/runtime.md#native-function-12-dispositions).
+
+The runner adds no runtime API or environment variables and is excluded from distributions.
+Its private result directory is separate from application state. Ordinary CI remains synthetic;
+WebKit and existing process checks still run in the complete repository test suite.
+
+Provider permission sets now serialize in sorted order, making policy fingerprints stable
+across JSON roundtrips. Recheck existing multi-control enrollment through the
+[provider readiness workflow](#provider-remediation) before reusing native evidence
+fingerprinted with older serialization. Preserve existing records during review.

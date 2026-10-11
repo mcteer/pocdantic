@@ -9,7 +9,7 @@ from typing import Annotated, Literal
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
-from pydantic import Field, SecretStr, StrictBool, StrictInt, model_validator
+from pydantic import Field, SecretStr, StrictBool, StrictInt, field_serializer, model_validator
 
 from agent.recovery.models import BoundOwnership, Digest, Private, Revision, now
 from agent.response.models import Definition, ResponseError
@@ -205,6 +205,11 @@ class SourceProfile(Private):
     allowed_scopes: frozenset[Literal["root_run", "definition"]] = frozenset({"definition"})
     ignored_fields: tuple[Native, ...] = Field(default=(), max_length=16)
 
+    @field_serializer("allowed_scopes", when_used="json")
+    def stable_scopes(self, value):
+        """Keep unordered source scopes deterministic in enrollment bytes and digests."""
+        return sorted(value)
+
     @model_validator(mode="after")
     def projection(self):
         """Require complete selectors and reviewed native provenance before activation."""
@@ -237,6 +242,11 @@ class Rule(Private):
     actions: tuple[Kind, ...] = Field(default=(), max_length=7)
     bindings: tuple[UUID, ...] = Field(default=(), max_length=16)
     required: frozenset[Kind] = frozenset()
+
+    @field_serializer("required", when_used="json")
+    def stable_required(self, value):
+        """Sort unordered controls so equivalent policy roundtrips retain their fingerprint."""
+        return sorted(value)
 
     @model_validator(mode="after")
     def scope_check(self):
@@ -646,6 +656,11 @@ class AuthorityReview(Private):
     source_digest: Digest
     reviewer: Annotated[str, Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")]
     reviewed_at: datetime
+
+    @field_serializer("entitlements", when_used="json")
+    def stable_entitlements(self, value):
+        """Serialize reviewed permission sets consistently without changing authority."""
+        return sorted(value)
 
 
 class ReadinessRecord(Private):

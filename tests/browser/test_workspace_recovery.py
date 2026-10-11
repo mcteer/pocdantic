@@ -62,6 +62,9 @@ def test_operator_closure_and_manual_new_submission(workspace_browser, authority
     elif authority == "expired":
         session.state = "reauth_required"
         page.reload()
+        # Reload finishes before asynchronous cookie/CSRF bootstrap. Let that read
+        # release its recovery lock before the synthetic operator acquires an effect.
+        expect(page.get_by_role("button", name="Check recovery", exact=True)).to_be_enabled()
     from pydantic import SecretStr
 
     settings = store.settings.model_copy(update={"vault_token": SecretStr("private")})
