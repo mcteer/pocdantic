@@ -241,3 +241,83 @@ no live roots, owners, holds or unresolved effects/acquisitions. Configuration c
 not reset old identity blocks. Ordinary OBO passes the delegated JWT directly to Vault;
 native service-token ownership is available only through the separately enrolled exclusive
 native login mount/role. Batch/shared token trees remain unsupported.
+
+## Governance private inputs
+
+Governance reuses `OAUTH_ISSUER`/`OAUTH_DISCOVERY_URL`, `VAULT_ADDR`, `VAULT_NAMESPACE`,
+`VAULT_AUDIENCE` and existing response/recovery enrollment. Keep the candidate source,
+credentials and evidence exclusively under owner-only local files. No model tool or browser
+route accepts these inputs. The inactive committed `config/governance.example.json` grants
+nothing; `agent govern prepare` creates the actual mode-0600 drafts beneath a mode-0700 root.
+
+| Private input | Required review |
+| --- | --- |
+| `config.draft.json` | Up to 16 `Source` profiles: safe alias/generation; exact product/version/instance, schema/fixture/collector SHA-256 digests, scalar JSON Pointers and fixed classification predicates; exact relay issuer/subject/separate audience; native clock bound at most five seconds |
+| `secrets.json` | Operator metadata/create credential; candidate and healthy client objects, each with the reviewed alias, verified JWT subject, private client ID and secret. Their signed subjects must differ |
+| `candidate-UUID.draft.json` | `binding` and expiring independently reviewed `entitlement` receipt. No provider settings are created from this file |
+| Non-TTY permission input | Exactly `schema_version` and `human_token`; at most 64 KiB. This human must match the reviewed owner issuer/subject and have the excessive-path baseline |
+| External evidence import | Exactly `schema_version`, `evidence` and `artifact`; at most 1 MiB, owned regular file mode 0600, no symlink/hardlink. Artifact SHA-256 must match the strict evidence record |
+| Captured receipt review | Exactly `schema_version` and `captured_evidence_id`; review the unchanged current adapter receipt without reconstructing secret-bearing provider bodies |
+
+Use the maintained strict models in `src/agent/governance/models.py` and `config.py` as the
+field reference. Boundary models reject extra fields and unsupported schema versions.
+Canonical hashes use `binding_digest` in `agent.governance.config`, which hashes sorted
+canonical JSON; hashing an arbitrary pretty-printed export produces a different digest.
+Hash the inner `data` object returned by the reviewed SPIFFE role/config and named policy
+GETs, rather than the outer response envelope. For an owner-only exported role receipt:
+
+```sh
+uv run python -c 'import json,sys; from agent.governance.config import binding_digest; print(binding_digest(json.load(sys.stdin)["data"]))' < .local/governance/role-export.json
+```
+
+This prints a digest and makes no provider call. The
+entitlement's `digest` hashes the entire strict receipt excluding its own `digest` field;
+it includes schema version, exact origin/namespace/version, registry/SPIFFE support,
+artifact digest, reviewer/time and expiration. Readiness reports the first failed
+prerequisite and does not infer a feature license from a version string.
+
+The binding joins exact source object, owner issuer/subject, actor issuer/subject, client
+aliases, Vault entity/issuer-external-ID alias, OAuth profile, reserved operation name,
+namespace, ceiling policies and published SPIFFE trust. Pin one supported RS/ES algorithm,
+canonical SPIFFE subject, signed entity, audience, discovery/JWKS URLs and a maximum
+SVID TTL of 300 seconds. Trust's namespace must equal the binding namespace; public-key
+requests use that exact namespace. OAuth profile audiences must equal the one configured
+Vault audience and RAR remains mandatory. The supported profile resolves `sub` and
+`act.sub` and uses access-token JWTs with at most 30 seconds of clock leeway. Candidate
+root policies, inherited groups and dynamic group claims are rejected; all effective
+policies must be explicit reviewed named policies. Ceiling policies exclude `root`,
+`no_default_ceiling_policy` is true, and `optional_authorization_details` is false.
+Record the independently reviewed `registry_clock_bound` (at most five seconds) before
+the controlled case; unknown bounds cannot prove pre-registration chronology. The isolated
+operator must have exact create/update capability rather than a root token.
+
+The five path keys are `preregistration`, `obo_allowed`, `obo_beyond_ceiling`,
+`direct_allowed` and `direct_denied`. Every value must be a dedicated
+`MOUNT/data/FIXTURE` KV-v2 path; readiness verifies each mount's version. For registration
+causality, preregistration and later direct-allowed reads must use the same resource.
+Pin all relevant human baseline, ordinary actor ACL and ceiling policy bodies. A ceiling
+claim requires the human baseline and requested RAR to allow the excessive path while
+only the reviewed ceiling excludes it. Provider status 403 by itself is insufficient.
+
+A source body cannot choose an owner, entity, policy, provider destination or effect.
+Native provenance requires an enrolled actual source shape and authenticated collector
+capture. `operator`/`synthetic` profiles cannot satisfy native acceptance. Source/profile
+changes need a next generation and cannot replace inputs pinned by an open case or live/
+unknown issuance. Changed case evidence invalidates unconsumed enrollment reviews.
+
+Imports retain candidate/case/generation, environment/implementation/binding/source and
+artifact digests, observed/received times, provenance, closed evidence kind/outcome,
+independence/health/attribution, local observation/attempt references and structured facts.
+Facts carry actual status/control/baseline decisions, independent proof ID, native audit
+pair digests or provider completion/non-issuance information. Freeform artifact text cannot
+substitute for these predicates. Historical or operator assertions cannot become native
+intake; a late receipt cannot backdate discovery before registration. Each case has at most
+32 evidence records. A changed import under an existing ID conflicts.
+
+All provider calls have a ten-second/256-KiB bound. Effects run in a compiled subprocess
+with a 120-second hard lifetime and inherited ownership locks, including after parent
+death. Sixteen unresolved credential intents, 1,000 cases, 10,000 observations and a
+32-MiB journal bound cap storage. Every effect reserves 256 KiB before dispatch.
+Do not assume OAuth/SVID issuance stopped because a client timed out: automatic lifetime
+safety needs an independently reviewed server-completion bound and the applicable TTL;
+unknown bounds require explicit provider evidence and resolution.

@@ -18,6 +18,8 @@ requirements. Owner: maintainer.
 
 | [0009](0009-provider-remediation.md) | Exact provider response and independent proof |
 
+| [0010](0010-shadow-agent-governance.md) | Shadow agent governance and independent identity proof |
+
 Use the next sequential number for a new record. Include status, date, context,
 decision, alternatives and consequences. Accepted decisions remain historical:
 supersede them with a new ADR and link both records rather than rewriting history.

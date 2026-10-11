@@ -51,6 +51,7 @@ SAFE_NAMES = frozenset(
         "telemetry",
         "report",
         "response",
+        "governance",
         "agent",
         "model",
         "tool",
@@ -58,6 +59,10 @@ SAFE_NAMES = frozenset(
 )
 UUID_ATTRIBUTES = frozenset(
     (
+        "gov_candidate_id",
+        "gov_case_id",
+        "gov_attempt_id",
+        "gov_proof_id",
         "validation_id",
         "observation_id",
         "request_id",
@@ -72,6 +77,9 @@ UUID_ATTRIBUTES = frozenset(
 )
 COUNTS = frozenset(
     (
+        "gov_observations",
+        "gov_evidence",
+        "gov_generation",
         "duration",
         "effect_attempts",
         "forbidden_effects",
@@ -80,6 +88,39 @@ COUNTS = frozenset(
     )
 )
 ENUMS = {
+    "gov_operation": frozenset(
+        (
+            "readiness",
+            "observe",
+            "enroll",
+            "identity",
+            "permissions",
+            "negatives",
+            "reconcile",
+            "resolve",
+            "import",
+            "close",
+            "source_intake",
+        )
+    ),
+    "gov_state": frozenset(
+        (
+            "prepared",
+            "observed",
+            "reviewed",
+            "enrolling",
+            "registered",
+            "blocked",
+            "closed",
+            "submitted",
+            "confirmed",
+            "denied",
+            "uncertain",
+            "conflict",
+        )
+    ),
+    "gov_outcome": frozenset(("pass", "fail", "blocked", "inconclusive")),
+    "gov_provenance": frozenset(("synthetic", "operator", "native")),
     "response_action": frozenset(("cancel_local", "revoke_exact")),
     "response_status": frozenset(
         ("planned", "submitted", "confirmed", "denied", "failed", "uncertain")

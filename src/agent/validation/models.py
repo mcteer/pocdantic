@@ -179,6 +179,11 @@ def implementation_revision():
         )
     ]
     names += ["recovery/store.py", "recovery/models.py"]
+    names += sorted(
+        "governance/" + entry.name
+        for entry in root.joinpath("governance").iterdir()
+        if entry.name.endswith(".py") and entry.is_file()
+    )
     return digest(
         {name: hashlib.sha256(root.joinpath(name).read_bytes()).hexdigest() for name in names}
     )

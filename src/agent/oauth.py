@@ -176,6 +176,19 @@ class OAuthClient:
             data["scope"] = " ".join(scopes)
         return await self._token(data)
 
+    async def client_credentials_details(
+        self, details: list[dict], audience: str, scopes: tuple[str, ...] = ()
+    ) -> TokenResponse:
+        """Request direct candidate authority with exact RAR; never retry without details."""
+        data = {
+            "grant_type": "client_credentials",
+            "audience": audience,
+            "authorization_details": json.dumps(details),
+        }
+        if scopes:
+            data["scope"] = " ".join(scopes)
+        return await self._token(data)
+
     async def authorization_code(
         self, code: str, verifier: str, redirect_uri: str
     ) -> TokenResponse:

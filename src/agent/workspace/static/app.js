@@ -58,6 +58,7 @@ const messages = {
 let session = null, latestJobs = [], currentId = null, pending = null, pendingRetry = null;
 let posting = false, knownBusy = false, lastPoll = 0, polling = false;
 let operational = null, diagnosticReport = null, checking = false, authPosting = false;
+let governanceGeneration = 0;
 
 /** Show a closed error message and move keyboard focus to its accessible container. */
 function showError(error) {
@@ -93,7 +94,10 @@ async function loadSession() {
   $('logout').hidden = !session.signed_in;
   $('workspace').hidden = !session.signed_in;
   // Remove owned provider details when logout, expiry or suspension closes the session.
-  if (!session.signed_in) $('provider-controls').replaceChildren();
+  if (!session.signed_in) {
+    $('provider-controls').replaceChildren();
+    clearGovernance();
+  }
   $('profile').replaceChildren(...session.profiles.map(profile => {
     const option = document.createElement('option');
     option.value = profile;
@@ -104,7 +108,34 @@ async function loadSession() {
     'Optional integrations need configuration: ' + session.configuration_issues.join(', ') : '';
   if (session.login_error) showError(session.login_error);
   await loadOperations();
+  if (session.signed_in) await loadGovernance();
   diagnosticFreshness();
+}
+
+/** Load only server-filtered generated cases. Fence late responses against a closed
+ * or rotated session so a request started before sign-out cannot restore private rows. */
+function clearGovernance() {
+  governanceGeneration++;
+  $('governance-cases').replaceChildren();
+  $('governance-status').textContent = '';
+}
+
+/** Fetch only owner-filtered case summaries, discarding responses from an earlier session. */
+async function loadGovernance() {
+  const captured = session;
+  const generation = governanceGeneration;
+  const view = await api('/api/governance');
+  if (!session?.signed_in || generation !== governanceGeneration || captured?.csrf_token !== session.csrf_token) return;
+  $('governance-status').textContent = view.reason_code === 'not_initialized' ?
+    'Governance has not been prepared by the operator.' : view.reason_code === 'sign_in_required' ?
+    'Sign out, then sign in again to view governance cases.' : view.reason_code ?
+    'Governance status needs operator review.' : view.candidates.length ? '' : 'No owned cases.';
+  $('governance-cases').replaceChildren(...view.candidates.map(item => {
+    const row = document.createElement('li');
+    row.textContent = item.alias + ' · ' + item.state + ' · ' +
+      item.observations + ' observations · ' + item.evidence + ' evidence records';
+    return row;
+  }));
 }
 
 /** Disable conflicting operations and freeze the exact payload of an uncertain submission.
@@ -201,6 +232,7 @@ async function poll() {
     await loadOperations();
     diagnosticFreshness();
     if (!session.signed_in) return;
+    await loadGovernance();
     latestJobs = (await api('/workspace/runs')).jobs;
     knownBusy = latestJobs.some(job => !terminal.has(job.state));
     history(latestJobs);
@@ -208,8 +240,12 @@ async function poll() {
     if (selected) render(selected);
     controls(knownBusy);
   } catch (error) {
-    if (error.code === 'sign_in_required') await loadSession();
-    else showError(error);
+    if (['sign_in_required', 'request_forbidden'].includes(error.code)) {
+      clearGovernance();
+      // Aggregate status can discover a closed cookie before the signed-in reads.
+      // Bootstrap again without replaying a task, proof or provider operation.
+      try { await loadSession(); } catch (refreshError) { showError(refreshError); }
+    } else showError(error);
   } finally {
     polling = false;
   }
@@ -240,6 +276,7 @@ $('login').addEventListener('click', async () => {
 $('logout').addEventListener('click', async () => {
   try {
     await api('/auth/logout', {schema_version: 1});
+    clearGovernance();
     pending = null;
     pendingRetry = null;
     currentId = null;

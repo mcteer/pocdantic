@@ -212,7 +212,7 @@ def synthetic_runtime_dependency(monkeypatch, tmp_path):
 @pytest.fixture(autouse=True)
 def provider_network_boundary(request, monkeypatch):
     """Deny unmocked provider-test HTTP; fixture transports cannot fall through to sockets."""
-    if not request.node.path.name.startswith("test_provider_"):
+    if not request.node.path.name.startswith(("test_provider_", "test_governance_")):
         return
 
     async def async_denied(*args, **kwargs):
@@ -225,3 +225,21 @@ def provider_network_boundary(request, monkeypatch):
 
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", async_denied)
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", sync_denied)
+
+
+@pytest.fixture(autouse=True)
+def governance_isolation(request, monkeypatch, tmp_path):
+    """Poison ambient credentials and default roots for all governance/browser fixtures."""
+    if "governance" not in request.node.path.name:
+        return
+    import agent.governance.commands as commands
+    import agent.recovery.store as recovery
+    import agent.validation.store as validation
+    from agent.settings import Settings
+
+    monkeypatch.setattr(Settings, "model_config", Settings.model_config | {"env_file": None})
+    for name in ("VAULT_TOKEN", "OAUTH_CLIENT_SECRET", "BEARER_TOKEN", "LOGIN_CLIENT_SECRET"):
+        monkeypatch.setenv(name, "poison-unused-ambient-credential")
+    monkeypatch.setattr(validation, "project_root", lambda: tmp_path)
+    monkeypatch.setattr(recovery, "project_root", lambda: tmp_path)
+    monkeypatch.setattr(commands, "project_root", lambda: tmp_path)

@@ -6,6 +6,7 @@ The separate bearer-token API does not share this browser authentication flow.
 """
 
 import asyncio
+import time
 from contextlib import asynccontextmanager
 from importlib.resources import files
 from uuid import UUID
@@ -61,6 +62,7 @@ def create_workspace_app(
     approval_backend=None,
     recovery_store=None,
     response_store=None,
+    governance_store=None,
 ):
     """Build the loopback workspace with isolated sessions and one bounded run manager.
 
@@ -89,6 +91,14 @@ def create_workspace_app(
     diagnostics = Diagnostics(config, recovery_store, transport=http_transport)
     recovery_store.workspace_required = True
 
+    if governance_store is None:
+        from agent.governance.store import GovernanceStore
+        from agent.recovery.store import environment_digest
+
+        governance_store = GovernanceStore(
+            project=recovery_store.project, environment=environment_digest(config)
+        )
+
     @asynccontextmanager
     async def lifespan(app):
         """Own the HTTP client, auth manager, expiry timer, and orderly session shutdown."""
@@ -107,6 +117,7 @@ def create_workspace_app(
             app.state.auth = WorkspaceAuth(config, http, origin)
             app.state.diagnostics = diagnostics
             app.state.recovery = recovery_store
+            app.state.governance = governance_store
             app.state.response = runtime.response_store
             store.subject_held = getattr(runtime.response_store, "subject_held", None)
             app.state.store = store
@@ -316,6 +327,23 @@ def create_workspace_app(
             )
         restriction = manager.containment_view(current if signed else None)
         return view.model_copy(update={"connection": connection, "containment": restriction})
+
+    @app.get("/api/governance")
+    async def governance_view(request: Request):
+        """Read only the verified session owner's generated governance case projections."""
+        current = context(request, signed=True)
+        if request.query_params:
+            raise SecurityError("invalid_request")
+        from agent.governance.models import GovernanceError
+        from agent.governance.report import summary
+
+        principal = current.credentials.principal
+        if current.credentials.expires <= time.time():
+            return {"schema_version": 1, "candidates": [], "reason_code": "sign_in_required"}
+        try:
+            return summary(governance_store.read(), owner=(principal.issuer, principal.subject))
+        except GovernanceError as error:
+            return {"schema_version": 1, "candidates": [], "reason_code": str(error)}
 
     @app.get("/workspace/operations")
     async def operational_view(request: Request):
