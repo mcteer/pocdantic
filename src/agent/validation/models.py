@@ -257,6 +257,15 @@ class ValidationRun(Contract):
     suite_revision: Digest
     mode: Mode
     selected: tuple[Label, ...] = Field(min_length=1, max_length=32)
+    authentication_mode: Literal["user-jwt", "delegated-exchange"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    execution_origin: Literal["provider", "synthetic"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    source_product: Literal["generic", "verify"] | None = Field(
+        default=None, exclude_if=lambda value: value is None, repr=False
+    )
     configuration_fingerprint: Digest = Field(repr=False)
     created_at: datetime = Field(default_factory=now)
     completed_at: datetime | None = None
@@ -430,6 +439,9 @@ class NormalizedSourceEvent(Contract):
 
 
 class SourceArtifact(Contract):
+    credential_target: str | None = Field(
+        default=None, repr=False, exclude_if=lambda value: value is None
+    )
     artifact_id: UUID = Field(default_factory=uuid4)
     manifest: ImportManifest = Field(repr=False)
     raw_digest: Digest
@@ -523,7 +535,12 @@ CheckId = Literal[
 class ReadinessCheck(Contract):
     check_id: CheckId
     scenario: Literal[
-        "delegated-database-read", "actor-only-denial", "phone-approved", "phone-denied"
+        "delegated-database-read",
+        "actor-only-denial",
+        "phone-approved",
+        "phone-denied",
+        "user-jwt-read",
+        "user-jwt-denial",
     ]
     section: Literal["execution", "evidence"]
     state: Literal["configured", "missing", "invalid", "unverified", "not_applicable"]
@@ -532,7 +549,7 @@ class ReadinessCheck(Contract):
 
 
 class ReadinessReport(Contract):
-    suite: Literal["live-database", "live-phone"]
+    suite: Literal["live-database", "live-phone", "live-portability"]
     selected: tuple[Label, ...] = Field(min_length=1, max_length=2)
     checks: tuple[ReadinessCheck, ...]
     execution_ready: bool
@@ -561,8 +578,20 @@ class ReadinessReport(Contract):
         return 0 if self.execution_ready and self.evidence_ready else 2
 
 
-LiveCase = Literal["delegated-database-read", "actor-only-denial", "phone-approved", "phone-denied"]
-LIVE_CASES = ("delegated-database-read", "actor-only-denial", "phone-approved", "phone-denied")
+LiveCase = Literal[
+    "delegated-database-read",
+    "actor-only-denial",
+    "phone-approved",
+    "phone-denied",
+    "user-jwt-read",
+    "user-jwt-denial",
+]
+LIVE_CASES = (
+    "delegated-database-read",
+    "actor-only-denial",
+    "phone-approved",
+    "phone-denied",
+)
 
 
 class CloseoutMember(Contract):

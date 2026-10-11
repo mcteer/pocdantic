@@ -63,6 +63,24 @@ def profile_bytes(path):
 def capture_context(settings):
     """Capture and hash the nonsecret execution configuration and relevant local files."""
     selectors = {k: getattr(settings, k) for k in SELECTORS}
+    if (
+        settings.database_auth_mode != "delegated-exchange"
+        or settings.oauth_trusted_hosts
+        or settings.oauth_ca_file
+        or settings.vault_ca_file
+    ):
+        from agent.setup.http import ca_digest
+
+        selectors.update(
+            authentication_mode=settings.database_auth_mode,
+            login_client_id=settings.login_client_id,
+            login_scopes=settings.login_scopes,
+            oauth_trusted_hosts=",".join(settings.oauth_trusted_hosts),
+            vault_jwt_auth_mount=settings.vault_jwt_auth_mount,
+            vault_jwt_auth_role=settings.vault_jwt_auth_role,
+            oauth_ca_digest=ca_digest(settings.oauth_ca_file),
+            vault_ca_digest=ca_digest(settings.vault_ca_file),
+        )
     selectors["logfire_base_url"] = settings.logfire_base_url or "token-routed"
     for key, read in (
         ("profiles_digest", lambda: profile_bytes(settings.profiles_file)),

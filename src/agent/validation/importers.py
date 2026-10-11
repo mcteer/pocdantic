@@ -30,7 +30,7 @@ def timestamp(value, *, milliseconds=False):
     raise StoreError("schema_invalid")
 
 
-def vault_record(row, manifest):
+def vault_record(row, manifest, *, target=None):
     """Normalize supported Vault request/response records and detect conflicting lease
     fields.
     """
@@ -43,9 +43,9 @@ def vault_record(row, manifest):
     path = request.get("path", "")
     phase = (
         "cleanup"
-        if path == "sys/leases/revoke"
+        if path in {"sys/leases/revoke", "auth/token/revoke-self"}
         else "credential"
-        if path.startswith("database/creds/")
+        if (path == target if target else path.startswith("database/creds/"))
         else None
     )
     headers = request.get("headers") or {}
@@ -166,7 +166,7 @@ def validate_columns(columns, rows, type_key):
         raise StoreError("schema_invalid")
 
 
-def normalize(raw, manifest):
+def normalize(raw, manifest, *, target=None):
     """Parse bounded source records and deduplicate identical native records.
 
     Conflicting records remain detectable rather than being silently overwritten.
@@ -206,7 +206,11 @@ def normalize(raw, manifest):
         for row in rows:
             if not isinstance(row, dict):
                 raise StoreError("schema_invalid")
-            event = adapter(row, manifest)
+            event = (
+                adapter(row, manifest, target=target)
+                if manifest.source_kind == "vault"
+                else adapter(row, manifest)
+            )
             key = (event.source_instance, event.source_event_id, event.kind)
             if key in unique and unique[key] != event:
                 raise StoreError("evidence_contradicted")
@@ -228,7 +232,11 @@ def load_artifacts(writer):
             != artifact.normalized_digest
         ):
             raise StoreError("digest_mismatch")
-        if normalize(raw, artifact.manifest) != artifact.events:
+        if artifact.credential_target is not None and artifact.credential_target != enrolled_target(
+            writer
+        ):
+            raise StoreError("context_mismatch")
+        if normalize(raw, artifact.manifest, target=artifact.credential_target) != artifact.events:
             raise StoreError("digest_mismatch")
         if artifact.manifest.source_kind == "logfire" and artifact.manifest.format_version == 1:
             source = decode_json(raw)
@@ -250,7 +258,8 @@ def import_source(writer, source, input_path, manifest):
     if source != manifest.source_kind:
         raise StoreError("source_unsupported")
     raw = read_private(Path(input_path))
-    events = normalize(raw, manifest)
+    target = enrolled_target(writer) if source == "vault" else None
+    events = normalize(raw, manifest, target=target)
     previous = load_artifacts(writer)
     if sum(a.event_count for a in previous) + len(events) > MAX_EVENTS:
         raise StoreError("limits_exceeded")
@@ -264,6 +273,7 @@ def import_source(writer, source, input_path, manifest):
         if key in existing and event != existing[key]:
             raise StoreError("evidence_contradicted")
     artifact = SourceArtifact(
+        credential_target=target,
         manifest=manifest,
         events=events,
         event_count=len(events),
@@ -400,3 +410,21 @@ def provider_observation_input(path):
         return raw
     except Exception:
         raise ResponseError("provider_evidence_invalid") from None
+
+
+def enrolled_target(writer):
+    """Derive the exact credential path from the run's trusted original context, not exports."""
+    from agent.setup.models import DatabaseTarget
+
+    from .models import DeploymentContext
+
+    if not (writer.path / "context.json").exists():
+        return None  # Historical artifacts retain their original normalization grammar.
+    try:
+        context = DeploymentContext.model_validate(writer.read_json("context.json"))
+    except ValidationError:
+        raise StoreError("digest_mismatch") from None
+    path = context.selectors.get("vault_read_path")
+    if not isinstance(path, str):
+        raise StoreError("context_missing")
+    return DatabaseTarget.from_path(path).credential_path

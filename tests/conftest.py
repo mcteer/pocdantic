@@ -217,7 +217,14 @@ def synthetic_runtime_dependency(monkeypatch, tmp_path):
 def provider_network_boundary(request, monkeypatch):
     """Deny unmocked provider-test HTTP; fixture transports cannot fall through to sockets."""
     if not request.node.path.name.startswith(
-        ("test_provider_", "test_governance_", "test_security_regression_")
+        (
+            "test_provider_",
+            "test_governance_",
+            "test_security_regression_",
+            "test_portable_",
+            "test_setup_",
+            "test_workspace_portability",
+        )
     ):
         return
 
@@ -254,3 +261,24 @@ def governance_isolation(request, monkeypatch, tmp_path):
 
 
 from closeout_support import closeout_project  # noqa: F401, E402
+
+
+@pytest.fixture(autouse=True)
+def portable_configuration_isolation(request, monkeypatch):
+    """Portable fixtures never inherit a developer's private file or exported credentials."""
+    if not request.node.path.name.startswith(
+        ("test_portable_", "test_setup_", "test_workspace_portability")
+    ):
+        return
+    import os
+
+    names = set()
+    for name, field in Settings.model_fields.items():
+        names.update((name.upper(), "POCDANTIC_" + name.upper()))
+        alias = field.validation_alias
+        choices = getattr(alias, "choices", (alias,))
+        names.update(value.upper() for value in choices if isinstance(value, str))
+    for name in tuple(os.environ):
+        if name.upper() in names:
+            monkeypatch.delenv(name)
+    monkeypatch.setattr(Settings, "model_config", Settings.model_config | {"env_file": None})

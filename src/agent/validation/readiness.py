@@ -77,6 +77,28 @@ def ready(suite_label, names=None, *, settings=None):
                 )
             )
 
+        if suite.label == "live-portability":
+            from agent.setup.readiness import local_check
+
+            report = local_check(s, cli=True, denial=scenario.label == "user-jwt-denial")
+            add(
+                "oauth-config",
+                report.exit_code != 2,
+                invalid=invalid_settings or s.database_auth_mode != "user-jwt",
+            )
+            add("vault-target", report.exit_code != 3)
+            add("remote-identity", external=True)
+            add("remote-permissions", external=True)
+            add("remote-reachability", external=True)
+            # Standard login/read proof never satisfies the delegated UC criteria.
+            add("vault-export", section="evidence", external=True)
+            continue
+
+        add(
+            "delegated-audiences",
+            bool(s.vault_audience) if suite.label == "live-database" else True,
+            invalid=s.database_auth_mode != "delegated-exchange",
+        )
         add("human-token", bool(s.bearer_token))
         add("oauth-client", bool(s.oauth_client_id and s.oauth_client_secret))
         add("oauth-audience", bool(s.oauth_audience))
@@ -116,7 +138,7 @@ def ready(suite_label, names=None, *, settings=None):
             add("postgres-extra", importlib.util.find_spec("psycopg") is not None)
             path = s.vault_read_path
             valid_path = (
-                path.startswith("database/creds/")
+                "/creds/" in path
                 and ".." not in path.split("/")
                 and not any(c in path for c in "?#")
             )
@@ -127,7 +149,7 @@ def ready(suite_label, names=None, *, settings=None):
                 and not (p.username or p.password or p.query or p.fragment)
             )
             add("vault-target", bool(s.vault_addr), invalid=not (valid_path and valid_url))
-            add("delegated-audiences", bool(s.vault_audience))
+
             add(
                 "database-target",
                 bool(s.database_host and s.database_name),

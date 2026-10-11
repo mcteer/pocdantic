@@ -172,6 +172,12 @@ policy. These are operational prerequisites, not a claim that protection is enab
 
 ## Release and dependency maintenance
 
+The [Dependabot configuration](.github/dependabot.yml) schedules weekly update PRs for
+`pyproject.toml`/`uv.lock` and pinned GitHub Actions. Related Pydantic AI packages are
+grouped to keep their versions aligned. It takes effect when merged to the default
+branch. Update PRs require the normal CI and maintainer review; automatic merging is
+not configured. See [uv's Dependabot integration](https://docs.astral.sh/uv/guides/integration/dependabot/).
+
 Before release, the maintainer reviews dependency/license changes, records a versioned
 change summary and migration notes, and verifies wheel/sdist contents.
 Use semantic versioning; pre-1.0 consumers should expect explicitly documented compatibility

@@ -52,6 +52,7 @@ def collect(writer):
         run.validation_id.hex != writer.path.name.replace("-", "")
         or run.mode != "live"
         or run.suite not in {"live-database", "live-phone"}
+        or run.authentication_mode not in {None, "delegated-exchange"}
         or any(s not in LIVE_CASES for s in run.selected)
     ):
         raise StoreError("invalid_selection")

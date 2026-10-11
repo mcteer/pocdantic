@@ -21,7 +21,7 @@ import httpx
 import jwt
 from pydantic import SecretStr
 
-from agent.oauth import JWTVerifier, OAuthClient, OAuthConfig
+from agent.oauth import JWTVerifier, OAuthClient
 from agent.schemas import Principal
 from agent.security import SecurityError
 from agent.workspace.sessions import LoginAttempt, opaque
@@ -48,23 +48,9 @@ class WorkspaceAuth:
         callback URL.
         """
         self.settings, self.http, self.origin = settings, http, origin
-        discovery = settings.oauth_discovery_url
-        if not discovery and settings.verify_tenant_url:
-            discovery = (
-                settings.verify_tenant_url
-                + "/v1.0/endpoint/default/.well-known/openid-configuration"
-            )
-        self.oauth = OAuthClient(
-            OAuthConfig(
-                discovery_url=discovery,
-                issuer=settings.oauth_issuer,
-                token_endpoint=settings.oauth_token_endpoint,
-                client_id=settings.login_client_id,
-                client_secret=settings.login_client_secret,
-                auth_method=settings.oauth_auth_method,
-            ),
-            http,
-        )
+        from agent.probe import oauth_config
+
+        self.oauth = OAuthClient(oauth_config(settings, login=True), http)
         self.verifier = JWTVerifier(
             self.oauth, settings.oauth_audience, token_typ=settings.oauth_access_token_typ
         )

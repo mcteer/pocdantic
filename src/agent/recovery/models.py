@@ -13,6 +13,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    SecretStr,
     StrictBool,
     StrictInt,
     field_validator,
@@ -94,7 +95,10 @@ class Private(Contract):
 
 
 class Receipt(Private):
-    outcome: Literal["lease_identified", "revoked", "not_issued"]
+    outcome: Literal["lease_identified", "token_identified", "revoked", "not_issued"]
+    credential_kind: Literal["native-user-token", "database-lease"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     incident_id: UUID
     incident_revision: Revision
     operation_id: UUID
@@ -125,6 +129,9 @@ class Receipt(Private):
 
 
 class Summary(Contract):
+    credential_kind: Literal["native-user-token", "database-lease"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     incident_id: UUID
     stage: str
     reason_code: str
@@ -163,8 +170,8 @@ class Attempt(Private):
         except Exception:
             raise ValueError("recovery_storage_error") from None
         if (
-            not self.credential_path.startswith("database/creds/")
-            or self.credential_path == "database/creds/"
+            "/creds/" not in self.credential_path
+            or not self.credential_path.split("/creds/")[-1]
             or self.reason_code not in REASONS
             or self.lease_handle is not None
             and not valid_handle(self.credential_path, self.lease_handle)
@@ -304,9 +311,130 @@ class JournalV2(Journal):
         return value
 
 
+class AttemptV3(AttemptV2):
+    """Linked user-token/lease custody with original provider context and private bearer."""
+
+    schema_version: Literal[3] = 3
+    credential_kind: Literal["native-user-token", "database-lease"] = "database-lease"
+    authentication_mode: Literal["user-jwt", "delegated-exchange"] = "delegated-exchange"
+    parent_id: UUID | None = None
+    native_token: SecretStr | None = Field(default=None, repr=False, max_length=4096)
+    token_accessor: Native | None = None
+    provider_address: str = Field(repr=False)
+    provider_namespace: str = Field(default="", repr=False)
+    provider_ca_digest: Digest | None = None
+
+    def summary(self):
+        """Identify the credential kind without disclosing its native token or lease handle."""
+        return super().summary().model_copy(update={"credential_kind": self.credential_kind})
+
+    @field_validator("schema_version", mode="before")
+    @classmethod
+    def version(cls, value):
+        """Dispatch exact v3 without accepting booleans or coercion."""
+        if type(value) is not int or value != 3:
+            raise ValueError("recovery_storage_error")
+        return value
+
+    @model_validator(mode="after")
+    def consistent(self):
+        """Preserve lease invariants and require independent typed token cleanup receipts."""
+        if self.credential_kind == "database-lease":
+            super().consistent()
+            if self.native_token or self.token_accessor:
+                raise ValueError("recovery_storage_error")
+        else:
+            from agent.vault import validate_path
+
+            validate_path(self.credential_path)
+            if self.authentication_mode != "user-jwt" or self.parent_id or self.lease_handle:
+                raise ValueError("recovery_storage_error")
+            if self.reason_code not in REASONS:
+                raise ValueError("recovery_storage_error")
+            if self.state in {"acquired", "cleanup_pending"} and not (
+                self.native_token or self.token_accessor
+            ):
+                raise ValueError("recovery_storage_error")
+            if self.state == "resolved":
+                if self.resolution == "not_issued" and (self.native_token or self.token_accessor):
+                    raise ValueError("recovery_evidence_invalid")
+                if not self.receipt or self.resolution != self.receipt.outcome:
+                    raise ValueError("recovery_storage_error")
+            elif (
+                self.resolution is not None
+                or self.receipt
+                and self.receipt.outcome != "token_identified"
+            ):
+                raise ValueError("recovery_storage_error")
+        if self.receipt and (
+            self.receipt.incident_id != self.incident_id
+            or self.receipt.operation_id != self.operation_id
+            or self.receipt.environment_digest != self.environment_digest
+            or self.receipt.incident_revision > self.revision
+            or self.receipt.credential_kind != self.credential_kind
+        ):
+            raise ValueError("recovery_evidence_invalid")
+        if (
+            self.authentication_mode == "user-jwt"
+            and self.credential_kind == "database-lease"
+            and not self.parent_id
+        ):
+            raise ValueError("recovery_storage_error")
+        return self
+
+
+class JournalV3(Journal):
+    """A v3 snapshot retains v2 history alongside independently typed linked attempts."""
+
+    schema_version: Literal[3] = 3
+    attempts: tuple[AttemptV3 | AttemptV2, ...] = Field(default=(), max_length=1000)
+
+    @field_validator("schema_version", mode="before")
+    @classmethod
+    def version(cls, value):
+        """Require exact v3 rather than coercing external schema values."""
+        if type(value) is not int or value != 3:
+            raise ValueError("recovery_storage_error")
+        return value
+
+    @model_validator(mode="after")
+    def consistent(self):
+        """Allow resolved historical contexts while preserving current unresolved custody."""
+        if (
+            len({a.incident_id for a in self.attempts}) != len(self.attempts)
+            or len({a.operation_id for a in self.attempts}) != len(self.attempts)
+            or any(
+                a.environment_digest != self.environment_digest and a.state != "resolved"
+                for a in self.attempts
+            )
+            or sum(a.state != "resolved" for a in self.attempts) > 100
+        ):
+            raise ValueError("recovery_storage_error")
+        return self
+
+    @model_validator(mode="after")
+    def links(self):
+        """A child must belong to one native-token parent in the same immutable context."""
+        by_id = {a.incident_id: a for a in self.attempts}
+        for child in self.attempts:
+            if isinstance(child, AttemptV3) and child.parent_id:
+                parent = by_id.get(child.parent_id)
+                if (
+                    not isinstance(parent, AttemptV3)
+                    or parent.credential_kind != "native-user-token"
+                    or parent.ownership != child.ownership
+                    or parent.environment_digest != child.environment_digest
+                    or parent.provider_address != child.provider_address
+                    or parent.provider_namespace != child.provider_namespace
+                    or parent.provider_ca_digest != child.provider_ca_digest
+                ):
+                    raise ValueError("recovery_storage_error")
+        return self
+
+
 def parse_journal(data):
-    """Read v1 for cleanup compatibility or v2 for prospective ownership."""
+    """Read preserved legacy state or v3 linked native credential ownership."""
     version = data.get("schema_version")
-    if type(version) is not int or version not in (1, 2):
+    if type(version) is not int or version not in (1, 2, 3):
         raise ValueError("recovery_storage_error")
-    return (JournalV2 if version == 2 else Journal).model_validate(data)
+    return {1: Journal, 2: JournalV2, 3: JournalV3}[version].model_validate(data)

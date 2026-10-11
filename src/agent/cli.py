@@ -10,8 +10,6 @@ import json
 import sys
 from pathlib import Path
 
-import httpx
-
 from .demo import model as demo_model
 from .oauth import JWTVerifier, OAuthClient
 from .probe import oauth_config, probe
@@ -45,9 +43,13 @@ async def authenticated_principal(settings: Settings) -> Principal:
     """
     if not settings.bearer_token or not settings.oauth_audience:
         raise SecurityError("verified_bearer_and_audience_required")
-    async with httpx.AsyncClient(timeout=15, follow_redirects=False) as http:
+    from .setup.http import client
+
+    async with client(settings, "oauth", timeout=15) as http:
         verifier = JWTVerifier(
-            OAuthClient(oauth_config(settings), http),
+            OAuthClient(
+                oauth_config(settings, verification=settings.database_auth_mode == "user-jwt"), http
+            ),
             settings.oauth_audience,
             token_typ=settings.oauth_access_token_typ,
         )
@@ -168,6 +170,9 @@ def main() -> None:
     run.add_argument("--profile", default="parent")
     batch = sub.add_parser("batch")
     batch.add_argument("--input", required=True)
+    from .setup.commands import add_setup_parser
+
+    add_setup_parser(sub)
     from .validation.commands import add_validation_parser
 
     add_validation_parser(sub)
@@ -185,6 +190,10 @@ def main() -> None:
     add_closeout_parser(sub)
     args = parser.parse_args()
     try:
+        if args.command == "setup":
+            from .setup.commands import execute_setup
+
+            raise SystemExit(asyncio.run(execute_setup(args)))
         if args.command == "respond" and args.response_command == "serve":
             from .response.api import serve
 

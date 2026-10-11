@@ -144,16 +144,25 @@ def synchronized(method):
 
 
 class RunWriter:
-    def __init__(self, path):
-        """Bind bounded storage operations to one private run directory."""
+    def __init__(self, path, *, read_only=False):
+        """Bind bounded operations and an exclusive lock to one private run directory.
+
+        Read-only inspection requires an existing lock and cannot create or modify artifacts.
+        """
         self.path = path
+        self.read_only = read_only
         self.mutex = threading.RLock()
         self.journal_counts = {}
         no_symlinks(path)
         self.dir_fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
             self.lock_fd = os.open(
-                ".lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600, dir_fd=self.dir_fd
+                ".lock",
+                (os.O_RDONLY if read_only else os.O_CREAT | os.O_RDWR)
+                | os.O_NOFOLLOW
+                | os.O_NONBLOCK,
+                0o600,
+                dir_fd=self.dir_fd,
             )
             fcntl.flock(self.lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
@@ -196,6 +205,8 @@ class RunWriter:
         Temporary files are synced before publication so immutable artifacts are not
         visible as partially written content.
         """
+        if self.read_only:
+            raise StoreError()
         safe_name(name)
         target = self.path / name
         no_symlinks(target)
@@ -272,6 +283,8 @@ class RunWriter:
     @synchronized
     def append_event(self, value, name="events.jsonl"):
         """Append and sync a bounded JSONL event to the selected private journal."""
+        if self.read_only:
+            raise StoreError()
         safe_name(name)
         raw = canonical(value) + b"\n"
         if len(raw) > MAX_EVENT:
@@ -301,9 +314,9 @@ class RunWriter:
 
 
 class PrivateStore:
-    def __init__(self, root=None, *, project=None):
+    def __init__(self, root=None, *, project=None, read_only=False):
         """Prepare a private, Git-ignored validation root beneath the project’s .local
-        directory.
+        directory, or inspect an existing private root without permission changes.
         """
         self.project = Path(project or project_root()).absolute()
         candidate = Path(root or self.project / ".local/validation").absolute()
@@ -322,11 +335,27 @@ class PrivateStore:
             )
             if ignored.returncode:
                 raise StoreError()
-        private_dirs(candidate, self.project)
+        if read_only:
+            # Setup inspection cannot create directories or silently repair unsafe modes.
+            for part in (candidate, *candidate.parents):
+                if part == self.project.resolve():
+                    break
+                info = part.stat(follow_symlinks=False)
+                if (
+                    not stat.S_ISDIR(info.st_mode)
+                    or info.st_uid != os.getuid()
+                    or info.st_mode & 0o077
+                ):
+                    raise StoreError()
+        else:
+            private_dirs(candidate, self.project)
+        self.read_only = read_only
         self.root = candidate
 
     def create(self, run_id: UUID):
         """Create a new private validation directory and return its locking writer."""
+        if self.read_only:
+            raise StoreError()
         path = self.root / str(UUID(str(run_id)))
         try:
             path.mkdir(mode=0o700)
@@ -342,11 +371,13 @@ class PrivateStore:
         no_symlinks(path)
         if not path.is_dir():
             raise StoreError()
-        return RunWriter(path)
+        return RunWriter(path, read_only=True) if self.read_only else RunWriter(path)
 
     def definition_ref(self, private_name: str) -> UUID:
         # A separate lock prevents concurrent runs from changing assigned definition IDs.
         """Return a stable private UUID for a profile or workload definition under a lock."""
+        if self.read_only:
+            raise StoreError()
         mapping_root = self.root / "definitions"
         private_dirs(mapping_root, self.project)
         with RunWriter(mapping_root) as writer:
@@ -368,6 +399,8 @@ class PrivateStore:
 
     def create_closeout(self, snapshot_id):
         """Create a separate immutable closeout directory with an opaque ID."""
+        if self.read_only:
+            raise StoreError()
         root = self.root / "closeouts"
         private_dirs(root, self.project)
         path = root / str(UUID(str(snapshot_id)))
@@ -383,4 +416,4 @@ class PrivateStore:
         no_symlinks(path)
         if not path.is_dir():
             raise StoreError("evidence_missing")
-        return RunWriter(path)
+        return RunWriter(path, read_only=True) if self.read_only else RunWriter(path)

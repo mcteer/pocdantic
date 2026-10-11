@@ -17,6 +17,10 @@ The demo and nine validation scenarios use synthetic data and make no network ca
 
 ## Configure a live run
 
+For a repeatable OIDC/Vault browser PoC, start with the [colleague setup guide](docs/setup.md).
+It includes a configuration worksheet and a prompt for agent-assisted setup;
+[AGENTS.md](AGENTS.md#help-someone-set-up-the-poc) defines the coding-agent workflow.
+
 Copy [.env.example](.env.example) to `.env.local` and enable only the integrations
 you need. Offline runs need no environment variables. Defaults cover model selection,
 timeouts, limits, and agent profiles.

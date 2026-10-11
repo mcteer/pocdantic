@@ -26,6 +26,8 @@ FACTORIES = frozenset(
         "actor-only-denial",
         "phone-approved",
         "phone-denied",
+        "user-jwt-read",
+        "user-jwt-denial",
     )
 )
 

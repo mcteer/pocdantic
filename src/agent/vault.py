@@ -68,11 +68,18 @@ class VaultClient:
             headers["X-Vault-Token"] = token.get_secret_value()
         observer = self.operation_observer
         binding = None
-        phase = "cleanup" if path == "sys/leases/revoke" else "credential"
+        phase = (
+            "cleanup"
+            if path in {"sys/leases/revoke", "auth/token/revoke-self", "auth/token/revoke-accessor"}
+            else "credential"
+        )
         lifecycle = self.credential_lifecycle
         operation_id = (
             lifecycle.item.operation_id
-            if lifecycle and lifecycle.item and phase == "credential"
+            if lifecycle
+            and lifecycle.item
+            and phase == "credential"
+            and path == lifecycle.item.credential_path
             else None
         )
         if operation_id:
@@ -221,6 +228,113 @@ class VaultClient:
         """Wait for synchronous exact-lease revocation; never accept queued completion."""
         await self.request("PUT", "sys/leases/revoke", token, {"lease_id": lease_id, "sync": True})
 
+    async def revoke_self(self, token):
+        """Revoke only the captured native token, never another token or a role prefix."""
+        await self.request("POST", "auth/token/revoke-self", token)
+
+    @asynccontextmanager
+    async def user_token(self, jwt, mount, role, *, operation_timeout, lifecycle):
+        """Journal login intent, capture native custody, validate lifetime, and always clean up.
+
+        A malformed login response may still contain an issued credential. Capture it before
+        other parsing so rejection cannot abandon native authority. Cleanup survives containment.
+        """
+        import time
+
+        lifecycle.start()
+        token = None
+        try:
+            result = await self.request(
+                "POST",
+                f"auth/{validate_path(mount)}/login",
+                body={"role": validate_path(role), "jwt": jwt.get_secret_value()},
+            )
+            auth = result.get("auth")
+            if (
+                not isinstance(auth, dict)
+                or not isinstance(auth.get("client_token"), str)
+                or not 0 < len(auth["client_token"]) <= 4096
+            ):
+                raise SecurityError("vault_token_invalid")
+            token = SecretStr(auth["client_token"])
+            issued_at = time.monotonic()
+            # Persist usable cleanup authority before inspecting optional native metadata.
+            lifecycle.acquired(token)
+            if self.operation_observer:
+                self.operation_observer.record("credential", "acquired")
+            accessor, request_id = auth.get("accessor"), result.get("request_id")
+            if any(
+                value is not None and (not isinstance(value, str) or not 0 < len(value) <= 1024)
+                for value in (accessor, request_id)
+            ):
+                raise SecurityError("vault_token_invalid")
+            lifecycle.metadata(native_request_id=request_id, token_accessor=accessor)
+            data = (await self.read(token, "auth/token/lookup-self")).get("data")
+            if not isinstance(data, dict):
+                raise SecurityError("vault_token_invalid")
+            ttl, cap = data.get("ttl"), data.get("explicit_max_ttl")
+            if (
+                data.get("type") != "service"
+                or data.get("period", 0) != 0
+                or type(ttl) is not int
+                or type(cap) is not int
+                or not 0 < ttl <= cap <= 300
+                or ttl - (time.monotonic() - issued_at) <= operation_timeout + 30
+                or not isinstance(data.get("policies"), list)
+                or not all(isinstance(policy, str) for policy in data["policies"])
+                or "root" in data["policies"]
+            ):
+                raise SecurityError("vault_token_invalid")
+            yield token
+        except BaseException:
+            if token is None:
+                lifecycle.uncertain()
+                if self.operation_observer:
+                    self.operation_observer.fact("credential_uncertain")
+            raise
+        finally:
+            if token is not None:
+                pending_failed = False
+                try:
+                    lifecycle.pending()
+                except Exception:
+                    # A journal fault cannot abandon the already captured native token.
+                    pending_failed = True
+                worker = asyncio.create_task(self.revoke_self(token))
+                deadline = asyncio.get_running_loop().time() + 10
+                interrupted = False
+                failed = False
+                while not worker.done():
+                    remaining = deadline - asyncio.get_running_loop().time()
+                    if remaining <= 0:
+                        failed = True
+                        worker.cancel()
+                        remaining = 1
+                    try:
+                        await asyncio.wait_for(asyncio.shield(worker), remaining)
+                    except asyncio.CancelledError:
+                        if worker.done():
+                            break
+                        interrupted = True
+                    except TimeoutError:
+                        continue
+                    except Exception:
+                        break
+                try:
+                    if failed or worker.cancelled():
+                        raise SecurityError("cleanup_failed")
+                    worker.result()
+                    if pending_failed:
+                        raise SecurityError("cleanup_failed")
+                    lifecycle.completed()
+                except Exception:
+                    lifecycle.uncertain("cleanup_unconfirmed")
+                    if self.operation_observer:
+                        self.operation_observer.fact("cleanup_failed")
+                    raise SecurityError("cleanup_failed") from None
+                if interrupted:
+                    raise asyncio.CancelledError
+
     @asynccontextmanager
     async def credentials(
         self,
@@ -237,8 +351,12 @@ class VaultClient:
         still be revoked. Shield cleanup from caller cancellation; report uncertain
         issuance or failed cleanup instead of claiming success.
         """
-        if not path.startswith("database/creds/"):
-            raise SecurityError("vault_credential_path")
+        from .setup.models import DatabaseTarget
+
+        try:
+            DatabaseTarget.from_path(path)
+        except ValueError:
+            raise SecurityError("vault_credential_path") from None
         lifecycle = self.credential_lifecycle
         if lifecycle:
             lifecycle.start()

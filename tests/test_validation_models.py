@@ -10,7 +10,7 @@ from agent.validation.models import Bounds, LifecycleEvent, ValidationRun
 
 def test_catalog_and_selection():
     catalog = load_catalog()
-    assert [len(s.scenarios) for s in catalog.suites] == [9, 2, 2]
+    assert [len(s.scenarios) for s in catalog.suites] == [9, 2, 2, 2]
     suite, selected = select_suite(catalog, "offline-security", None, "offline", False)
     assert len(selected) == 9 and len(suite.revision) == 64
     for names, mode in [

@@ -235,7 +235,7 @@ def publishable(name: str) -> bool:
         return True
     if name.startswith("specs/"):
         return p.suffix in {".md", ".json"} and not {"private", "evidence"} & set(p.parts)
-    if name in {"docs/usage.md", "docs/configuration.md"}:
+    if name in {"docs/usage.md", "docs/configuration.md", "docs/setup.md"}:
         return True
     if name.startswith("docs/adr/"):
         return p.suffix == ".md"
@@ -271,4 +271,5 @@ def publishable(name: str) -> bool:
         ".github/workflows/ci.yml",
         ".github/pull_request_template.md",
         ".github/CODEOWNERS",
+        ".github/dependabot.yml",
     }
