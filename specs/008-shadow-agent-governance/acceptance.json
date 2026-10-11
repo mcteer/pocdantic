@@ -1,0 +1,122 @@
+[
+  {
+    "criterion": "UC1-01",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "008 planning does not re-accept earlier controls; their native evidence and review requirements remain independent, including recorded demo-tier audit limitations.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC1-02",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "008 planning does not re-accept earlier controls; their native evidence and review requirements remain independent, including recorded demo-tier audit limitations.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC1-03",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "008 planning does not re-accept earlier controls; their native evidence and review requirements remain independent, including recorded demo-tier audit limitations.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC1-04",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "008 planning does not re-accept earlier controls; their native evidence and review requirements remain independent, including recorded demo-tier audit limitations.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC1-05",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "008 planning does not re-accept earlier controls; their native evidence and review requirements remain independent, including recorded demo-tier audit limitations.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC2-01",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "008 planning does not re-accept earlier controls; their native evidence and review requirements remain independent, including recorded demo-tier audit limitations.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC2-02",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "008 planning does not re-accept earlier controls; their native evidence and review requirements remain independent, including recorded demo-tier audit limitations.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC2-03",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "008 planning does not re-accept earlier controls; their native evidence and review requirements remain independent, including recorded demo-tier audit limitations.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC3-01",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "008 planning does not re-accept earlier controls; their native evidence and review requirements remain independent, including recorded demo-tier audit limitations.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC3-02",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "008 planning does not re-accept earlier controls; their native evidence and review requirements remain independent, including recorded demo-tier audit limitations.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC3-03",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "008 planning does not re-accept earlier controls; their native evidence and review requirements remain independent, including recorded demo-tier audit limitations.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC3-04",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "008 planning does not re-accept earlier controls; their native evidence and review requirements remain independent, including recorded demo-tier audit limitations.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC4-01",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "008 plans Function 11 software. Native collector discovery before registration, workload bootstrap, exact registry and SPIFFE deployment, independent verification, provider permission decisions and explicit evidence review remain required. Demo-tier Vault audit remains unavailable for audit-specific claims.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC4-02",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "008 plans Function 11 software. Native collector discovery before registration, workload bootstrap, exact registry and SPIFFE deployment, independent verification, provider permission decisions and explicit evidence review remain required. Demo-tier Vault audit remains unavailable for audit-specific claims.",
+    "source": "none",
+    "references": []
+  },
+  {
+    "criterion": "UC4-03",
+    "status": "blocked",
+    "owner": "integration owner",
+    "reason": "008 plans Function 11 software. Native collector discovery before registration, workload bootstrap, exact registry and SPIFFE deployment, independent verification, provider permission decisions and explicit evidence review remain required. Demo-tier Vault audit remains unavailable for audit-specific claims.",
+    "source": "none",
+    "references": []
+  }
+]

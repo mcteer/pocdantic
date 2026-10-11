@@ -4,6 +4,7 @@ Generated evidence remains private even if placed inside an otherwise allowed tr
 The historical package path remains eligible only for immutable Git-history checks.
 """
 
+import base64
 import hashlib
 import json
 import re
@@ -28,6 +29,8 @@ def generated_private(name: str) -> bool:
     p = PurePosixPath(name)
     if p.name in {
         "providers.draft.json",
+        "config.draft.json",
+        "secrets.json",
         "providers.readiness.json",
         "provider-secrets.json",
         "run.json",
@@ -50,6 +53,7 @@ def generated_private(name: str) -> bool:
     return p.suffix in {".json", ".md", ".raw", ".jsonl"} and p.name.startswith(
         (
             "source-",
+            "candidate-",
             "artifact-",
             "observation-",
             "review-",
@@ -61,6 +65,19 @@ def generated_private(name: str) -> bool:
     )
 
 
+def compact_token(data: bytes) -> bool:
+    """Reject encoded signed-token artifacts without relying on a particular JSON prefix."""
+    for match in re.finditer(rb"([A-Za-z0-9_-]{2,})\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", data):
+        try:
+            part = match.group(1)
+            header = json.loads(base64.urlsafe_b64decode(part + b"=" * (-len(part) % 4)))
+            if isinstance(header, dict) and "alg" in header:
+                return True
+        except (ValueError, UnicodeError, RecursionError):
+            continue
+    return False
+
+
 def private_content(name: str, data: bytes) -> bool:
     """Reject intact private recovery/native JSON even after its filename is changed.
 
@@ -69,6 +86,8 @@ def private_content(name: str, data: bytes) -> bool:
     """
     if PurePosixPath(name).suffix not in {".json", ".jsonl"}:
         return False
+    if compact_token(data):
+        return True
     try:
         values = [json.loads(data)] if data.lstrip().startswith((b"{", b"[")) else []
     except (ValueError, UnicodeError, RecursionError):
@@ -88,6 +107,12 @@ def private_content(name: str, data: bytes) -> bool:
         == "f03b8175792c3604077e8ab0d04e487c7f18af60fd88b99b11ea3a8552f0d091"
     ):
         return False
+    if (
+        example_name == "config/governance.example.json"
+        and hashlib.sha256(data).hexdigest()
+        == "a22dedf6efbb8e2882d0ef055b93d2eb07d25119af346ef2379ec9d0349471ad"
+    ):
+        return False
     pending = list(values)
     while pending:
         value = pending.pop()
@@ -105,7 +130,24 @@ def private_content(name: str, data: bytes) -> bool:
                 "automatic_cleanup": False,
             }
             if (
-                {"installation_id", "source_policy_digest", "bindings"} <= value.keys()
+                {"installation_id", "environment", "candidates"} <= value.keys()
+                or {"installation_id", "state_identity", "state_digest"} <= value.keys()
+                or {"installation_id", "root_identity", "file_identities"} <= value.keys()
+                or {"owner_issuer", "actor_subject", "entity_id", "trust"} <= value.keys()
+                or set(value) == {"schema_version", "sources"}
+                or {"candidate_id", "intent_id", "profile_digest"} <= value.keys()
+                or {"candidate_id", "challenge_id", "nonce_digest"} <= value.keys()
+                or {"proof_id", "token_digest", "trust_digest"} <= value.keys()
+                or {"binding_digest", "metadata_digest", "fingerprints"} <= value.keys()
+                or {"review_id", "journal_revision", "implementation"} <= value.keys()
+                or {"attempt_id", "review_id", "readback_digest"} <= value.keys()
+                or {"registry", "spiffe", "artifact_digest", "reviewed_by"} <= value.keys()
+                or {"client_id", "client_secret"} <= value.keys()
+                or "captured_evidence_id" in value
+                or {"evidence_id", "case_id", "artifact_digest"} <= value.keys()
+                or {"operator", "candidate", "healthy"} <= value.keys()
+                or {"alias", "collector_digest", "schema_digest", "pointers"} <= value.keys()
+                or {"installation_id", "source_policy_digest", "bindings"} <= value.keys()
                 or {"installation_id", "draft_digest", "bindings"} <= value.keys()
                 or {"action_id", "binding", "enrollment_digest"} <= value.keys()
                 or {"observation_id", "binding_id", "source_digest"} <= value.keys()
@@ -134,7 +176,8 @@ def private_content(name: str, data: bytes) -> bool:
                 return True
             for text in value.values():
                 if isinstance(text, str) and (
-                    re.search(
+                    re.search(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", text)
+                    or re.search(
                         r"https://[^\s]+[?&](?:sig|signature|code|token|api_key)=", text, re.I
                     )
                     or re.search(r"(?:^|\s)password\s*=", text, re.I)

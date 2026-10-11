@@ -89,7 +89,7 @@ acquired lease ID. Vault namespace suffixes in returned lease IDs are supported.
 Cleanup failure prevents a successful result; cancellation still waits for cleanup.
 
 Configure the provider's authorization detail type using
-[config/vault-path-access.schema.json](config/vault-path-access.schema.json).
+[config/vault-path-access.schema.json](../config/vault-path-access.schema.json).
 A schema containing only `type`, `path` and `capabilities` rejects the parameter-bound
 cleanup request. Verify schema setup requires `manageAuthDetailTypes` on the
 administrative API client; agent execution does not require that entitlement.
@@ -270,8 +270,8 @@ No command updates tracked acceptance snapshots or publishes artifacts.
 Exit codes are 130 for interruption, 1 for observed failure/integrity contradiction, 2 for invalid
 or blocked required work, and 0 for successful selected work. `run` evaluates operational and
 configured export checks; `report` additionally evaluates suite source/receipt requirements.
-Wider customer acceptance is separate. See the [feature quickstart](specs/002-security-validation/quickstart.md)
-and [native import contracts](specs/002-security-validation/contracts/runtime.md).
+Wider customer acceptance is separate. See the [feature quickstart](../specs/002-security-validation/quickstart.md)
+and [native import contracts](../specs/002-security-validation/contracts/runtime.md).
 
 ## Local readiness and closeout
 
@@ -637,3 +637,111 @@ cleanup, complete required provider proof, and reviewed old-credential safety. T
 actor can be restored only after minting stopped and the complete maximum old-token lifetime
 plus 30 seconds elapsed. Old roots stay terminal; a successful release permits fresh roots.
 Actor/client configuration migration is outside this workflow.
+
+## Shadow agent governance
+
+`agent govern` provides an operator workflow for Function 11. It observes an unknown
+workload, reviews one exact registration, proves short-lived SPIFFE identity through a
+separate relying process, and compares harmless permission reads. Findings never grant
+permission to enroll or execute tasks. The browser only displays cases belonging to the
+verified signed-in principal; privileged operations remain operator CLI commands.
+
+Install `server` for the two listeners. Existing OAuth/Vault settings select the deployment;
+there are no new environment variables. Stop the browser workspace before privileged
+commands, because it owns the recovery workspace lock. Keep response intake running.
+A hold remains authoritative and must be resolved through the existing response workflow.
+Do not remove locks or private journals to bypass `workspace_busy` or `contained`.
+
+Start locally, without calling a provider:
+
+```sh
+uv run agent govern prepare
+uv run agent govern status
+```
+
+Edit `.local/governance/config.draft.json` and `secrets.json`, then run `configure` with
+status's current revision and your safe operator label. Prepare a case with
+`case prepare --source ALIAS` and fill its generated `candidate-UUID.draft.json`.
+The [configuration reference](configuration.md#governance-private-inputs) explains the
+reviewed source, actor, policy, trust and entitlement inputs. `prepare` refuses an existing
+installation; it never resets previous authority or uncertain issuance.
+
+The controlled sequence is:
+
+```text
+agent govern configure --revision N --operator LABEL
+agent govern case prepare --source ALIAS
+agent govern readiness --candidate UUID
+agent govern serve --port 8002
+agent govern observe --candidate UUID --revision N
+agent govern import --input PRIVATE_FILE --candidate UUID --revision N --operator LABEL
+agent govern review --candidate UUID --revision N --operator LABEL
+agent govern enroll --review REVIEW_UUID --revision N
+agent govern relying serve
+agent govern prove --candidate UUID --revision N --scenario identity
+agent govern prove --candidate UUID --revision N --scenario permissions
+agent govern prove --candidate UUID --revision N --scenario negatives
+agent govern closeout --candidate UUID
+```
+
+Prefix each line with `uv run`. Run each listener in its own process. Always obtain `N`
+from fresh status or the previous command's returned revision. Inspect the owner-only
+`review-REVIEW_UUID.json` before applying that review. Readiness returns closed
+per-prerequisite checks (enterprise, entity, alias, OAuth profile, license, SPIFFE, policies,
+KV mounts, registry and operator capability); it creates no provider resources or tokens.
+
+`observe` captures the actual registration absence, one dedicated KV read and a distinct
+healthy actor's control. Its result describes activity, not successful discovery. The real
+collector must deliver authenticated unknown-workload and notification receipts before
+registration. Intake is observation-only at
+`http://127.0.0.1:8002/governance/native/ALIAS`; use the separately enrolled relay audience
+and `governance:observe` scope. Public hosting and generic vendor schemas are unsupported.
+An identical event is acknowledged once; changed content under its original ID conflicts.
+
+Permission proofs read only the five reviewed KV-v2 fixture paths. Supply the human token
+through non-TTY stdin as a bounded JSON object with `schema_version: 1` and `human_token`.
+Use an owner-only file redirected into the command; never put a credential in a flag,
+terminal transcript or shell command. The human signature/identity is checked independently
+of the actor, and the excessive OBO request needs a successful human baseline and healthy
+control before a denial can be attributed to the ceiling.
+
+The independent relying process exposes only `.local/governance/relying.sock` (mode 0600).
+It reads current pinned public trust itself, consumes a short-lived one-use challenge,
+verifies signed entity/issuer/SPIFFE subject/audience/lifetime, and rechecks containment.
+A mint acknowledgment alone cannot pass. Local tamper tests are labeled synthetic;
+actual unauthenticated mint denial needs a successful authenticated issuer/relying control.
+Neither the local nonce nor sign-out globally revokes a JWT.
+
+Status exposes generated aliases, local IDs/revisions, safe receipt kinds and retained
+attempt IDs. Review an adapter's already captured receipt by creating an owner-only import
+file containing `schema_version: 1` and `captured_evidence_id: UUID`, then running `import`.
+For an external receipt, use the full bounded envelope described in the configuration
+reference. The import records who reviewed it; it does not authenticate arbitrary text.
+Native discovery/notification/triage additionally require the exact authenticated intake
+observation, source-object mapping, times and source digest. Never edit `state.json`.
+
+On a lost response, use `reconcile --candidate UUID --revision N`; this only reads exact
+registry metadata. Matching presence does not prove that this process created it, and
+absence does not prove an old request cannot finish. Import independently attributed
+provider completion/non-issuance evidence, then explicitly run
+`resolve --attempt UUID --revision N --operator LABEL`. Resolution never retries a POST.
+Abandoned submitted work is retained as uncertain on the next quiescent metadata operation;
+refresh status after that revision changes. Unknown issuance stays pinned until resolved,
+or until an independently reviewed server-completion/lifetime bound actually passes.
+
+`close --candidate UUID --revision N --operator LABEL` archives locally only after effects
+have drained and every credential is expired or resolved. It does not delete registration
+or restore/revoke provider permissions. Complete linked evidence is retained for at least
+30 days; unresolved work is never pruned. Old closed source generations retain their
+original snapshots when a new generation activates.
+
+Closeout reports F11-T1 through T7 independently. Missing native prerequisites remain
+blocked; outage or a failed baseline cannot pass as policy enforcement. Demo-tier audit
+unavailability affects the audit result, not unrelated proof paths. Nothing automatically
+updates `specs/008-shadow-agent-governance/acceptance.json`. See the
+[controlled validation guide](../specs/008-shadow-agent-governance/quickstart.md) and
+[validation record](../specs/008-shadow-agent-governance/validation.md) for prerequisites.
+
+CLI exits are 0 for completed/readable commands, 2 for invalid input, 3 for missing setup,
+stale review, holds or busy ownership, and 4 for failed/inconclusive/uncertain effects.
+Every closed error includes a concrete setup, review or recheck action.

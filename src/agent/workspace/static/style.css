@@ -106,3 +106,6 @@ summary {
 /* Keep independent provider outcomes readable at narrow viewport widths. */
 #provider-controls { padding-left: 1.4rem; overflow-wrap: anywhere; }
 #provider-controls li { margin-block: .5rem; }
+
+/* Keep generated case labels readable on narrow local workspace windows. */
+#governance-cases li { overflow-wrap: anywhere; margin-block: 0.5rem; }

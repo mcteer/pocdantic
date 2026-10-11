@@ -66,3 +66,6 @@ Local readiness and immutable evidence closeout are described in the [runtime gu
 Live work also requires [local response enrollment](docs/usage.md#incident-containment).
 Optional [provider remediation](docs/usage.md#provider-remediation) adds enrolled native-event
 intake, exact provider controls, independent checks, and guided recovery.
+
+[Shadow agent governance](docs/usage.md#shadow-agent-governance) adds reviewed discovery,
+exact enrollment and independent identity/permission proofs through `agent govern`.
