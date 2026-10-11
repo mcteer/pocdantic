@@ -88,6 +88,12 @@ def private_content(name: str, data: bytes) -> bool:
         return False
     if compact_token(data):
         return True
+    # Recognizable private protocol fragments remain private even when JSON is damaged.
+    if all(
+        re.search(rb'"' + key + rb'"\s*:', data)
+        for key in (b"run_id", b"content_digest", b"selection_digest")
+    ):
+        return True
     try:
         values = [json.loads(data)] if data.lstrip().startswith((b"{", b"[")) else []
     except (ValueError, UnicodeError, RecursionError):
@@ -130,7 +136,10 @@ def private_content(name: str, data: bytes) -> bool:
                 "automatic_cleanup": False,
             }
             if (
-                {"installation_id", "environment", "candidates"} <= value.keys()
+                {"run_id", "content_digest", "selection_digest"} <= value.keys()
+                or {"profile", "frames", "cleanup"} <= value.keys()
+                or {"run_id", "artifacts", "profile_digests", "cleanup"} <= value.keys()
+                or {"installation_id", "environment", "candidates"} <= value.keys()
                 or {"installation_id", "state_identity", "state_digest"} <= value.keys()
                 or {"installation_id", "root_identity", "file_identities"} <= value.keys()
                 or {"owner_issuer", "actor_subject", "entity_id", "trust"} <= value.keys()

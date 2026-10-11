@@ -69,3 +69,6 @@ intake, exact provider controls, independent checks, and guided recovery.
 
 [Shadow agent governance](docs/usage.md#shadow-agent-governance) adds reviewed discovery,
 exact enrollment and independent identity/permission proofs through `agent govern`.
+
+Contributors can list, run, and inspect the synthetic security regression matrix with
+`uv run python scripts/run_security_regression.py run`; see [contributor checks](CONTRIBUTING.md#security-regression-checks).

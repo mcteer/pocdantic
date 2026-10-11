@@ -20,6 +20,7 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run --group browser playwright install --with-deps webkit
       - run: uv run --group browser pytest -q
+      - run: uv run python scripts/run_security_regression.py run
       - run: uv run agent validate run
       - run: uv run pytest -q tests/test_validation_runner.py::test_ten_repeatable_runs_under_budget tests/test_validation_report.py::test_ten_thousand_normalized_event_report_budget
       - run: uv run pytest -q tests/test_validation_readiness.py tests/test_validation_closeout.py

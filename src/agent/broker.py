@@ -178,8 +178,15 @@ class DatabaseBroker:
             actor_claims = await JWTVerifier(
                 oauth, s.actor_audience or s.oauth_client_id, token_typ=s.oauth_access_token_typ
             ).verify_claims(actor.access_token)
-            if actor_claims["sub"] == self.subject or (
-                "client_id" in actor_claims and actor_claims["client_id"] != s.oauth_client_id
+            # Some issuers omit grant_type; an explicit contradictory purpose cannot
+            # authorize the actor side of a human-plus-workload delegation.
+            if (
+                actor_claims["sub"] == self.subject
+                or ("client_id" in actor_claims and actor_claims["client_id"] != s.oauth_client_id)
+                or (
+                    "grant_type" in actor_claims
+                    and actor_claims["grant_type"] != "client_credentials"
+                )
             ):
                 raise SecurityError("database_actor_invalid")
             if actor_binding:
