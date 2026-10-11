@@ -236,7 +236,9 @@ def live_preflight(s, label):
     from .readiness import ready
 
     suite = (
-        "live-database"
+        "live-portability"
+        if label in {"user-jwt-read", "user-jwt-denial"}
+        else "live-database"
         if label in {"delegated-database-read", "actor-only-denial"}
         else "live-phone"
     )
@@ -254,6 +256,8 @@ async def live_scenario(label, *, settings=None, cleanup_timeout=30, runtime_opt
     """
     s = settings or Settings()
     missing = live_preflight(s, label)
+    if label == "user-jwt-denial":
+        s = s.model_copy(update={"bearer_token": s.portability_denied_token})
     if missing:
         return EffectResult("blocked", reason=missing)
     # Genuine identity must pass ingress before any scoped capability or phone request.
@@ -305,7 +309,7 @@ async def live_scenario(label, *, settings=None, cleanup_timeout=30, runtime_opt
         return replace(result, request_id=request_id, run_id=run_id)
     options = dict(runtime_options or {})
     stages = []
-    if label == "delegated-database-read":
+    if label in {"delegated-database-read", "user-jwt-read", "user-jwt-denial"}:
         from ..broker import DatabaseBroker
 
         adapter = DatabaseBroker(
@@ -333,12 +337,35 @@ async def live_scenario(label, *, settings=None, cleanup_timeout=30, runtime_opt
     response = await runtime.run(
         RequestEnvelope(
             task="Run the selected validation operation",
-            profile="database-reader" if label == "delegated-database-read" else "parent",
+            profile="database-reader"
+            if label in {"delegated-database-read", "user-jwt-read", "user-jwt-denial"}
+            else "parent",
         ),
         principal,
     )
     events = runtime.audit.events
-    if label == "delegated-database-read":
+    if label in {"delegated-database-read", "user-jwt-read", "user-jwt-denial"}:
+        if label == "user-jwt-denial":
+            ok = response.status == "denied" and not stages
+            return EffectResult(
+                "pass" if ok else "fail",
+                0,
+                int(not ok),
+                "not_acquired",
+                request_id=response.request_id,
+                run_id=response.run_id,
+            )
+        if label == "user-jwt-read":
+            clean = all(stage in stages for stage in ("lease_revoked", "token_revoked"))
+            ok = response.status == "completed" and clean
+            return EffectResult(
+                "pass" if ok else "fail",
+                int("lease_acquired" in stages),
+                0,
+                "revoked" if clean else "failed",
+                request_id=response.request_id,
+                run_id=response.run_id,
+            )
         attempted = sum(x == "read_delegation_verified" for x in stages)
         cleanup = (
             "revoked"

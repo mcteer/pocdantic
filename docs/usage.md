@@ -956,3 +956,13 @@ events and control receipts; provider/agent owners supply genuine cohorts and an
 agent-only/direct execution surface. Follow `guide` for exact existing commands and rechecks.
 Do not automatically delete evidence when a quota is reached: the owner must archive the complete
 private installation according to its retention policy. New attempts use new UUIDs.
+
+
+## Portable setup
+
+Use `agent setup init --mode user-jwt` to create private configuration without overwriting
+an existing file. `agent setup check` makes local checks; `--network` adds public reachability
+observations without issuing credentials. Follow the [colleague guide](setup.md) for exact
+provider preparation, baseline/advanced separation, live allow/deny checks and recovery.
+The browser lists configured/unverified capabilities; unsupported or unverified advanced
+features never grant authority or force a baseline downgrade.

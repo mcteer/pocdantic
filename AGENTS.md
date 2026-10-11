@@ -22,6 +22,35 @@ Use `agent` for CLI examples and short environment-variable names from `.env.exa
 Preserve documented legacy aliases unless a task explicitly changes compatibility.
 Keep examples synthetic and avoid personal names, tenant identifiers, and repeated branding.
 
+## Help someone set up the PoC
+
+Use [docs/setup.md](docs/setup.md) as the setup runbook and
+[docs/configuration.md](docs/configuration.md) as the setting reference. A request to
+get the PoC running means carry out the local setup, diagnose readiness, and help the
+user reach a signed-in workspace and a successful database read.
+
+1. Establish whether this is a fresh deployment or an existing installation. Preserve
+   existing `.env.local` and `.local/` state; follow the runbook's migration section
+   before changing an enrolled provider, route, trust bundle or database target.
+2. For the portable browser baseline, use `user-jwt`. Collect the administrator-provided
+   OIDC, Vault and database settings listed in the runbook. Ask only for missing details;
+   tell the user exactly which administrator must supply them and what to request.
+   Have the user enter secrets directly in `.env.local`, outside the conversation.
+3. Install the documented locked extras, create the private template if absent, then run
+   `agent setup check`. Report missing setting names without printing configuration or
+   credentials. Perform the explicit network check within the user's setup authorization.
+4. Enroll absent recovery/response state using the documented commands. Present the
+   response policy for review before enrollment; never erase state to bypass a block.
+   Start `agent workspace` and give the actual loopback URL and exact login steps.
+5. For browser assistance use Playwright/WebKit. Human sign-in may still be needed:
+   provide the page and expected result, then continue after the user finishes.
+   Distinguish successful sign-in, allowed read, denial and confirmed cleanup. Do not
+   claim optional provider capabilities from configuration or synthetic checks.
+
+Local setup authorization does not authorize changing remote provider policy or grants.
+When administration is needed, provide the runbook's exact steps and verify recovery
+afterward. Finish with the workspace URL, checks performed and concrete remaining actions.
+
 ## Development
 
 Use Python 3.12+ and the committed `uv.lock`. Install only the extras needed for the task.

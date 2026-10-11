@@ -21,8 +21,8 @@ class OAuthConfig(BaseModel):
     discovery_url: str | None = None
     token_endpoint: str | None = None
     issuer: str | None = None
-    client_id: str = Field(repr=False)
-    client_secret: SecretStr = Field(repr=False)
+    client_id: str | None = Field(default=None, repr=False)
+    client_secret: SecretStr | None = Field(default=None, repr=False)
     auth_method: Literal["client_secret_basic", "client_secret_post"] = "client_secret_post"
     trusted_hosts: frozenset[str] = frozenset()
 
@@ -130,6 +130,8 @@ class OAuthClient:
         Validate the response and bearer token type; hide raw HTTP and parsing failures
         behind safe codes. The request may issue a new credential.
         """
+        if not self.config.client_id or not self.config.client_secret:
+            raise SecurityError("oauth_client_missing")
         endpoint = self.config.token_endpoint or (await self.metadata())["token_endpoint"]
         auth = None
         data = dict(data)

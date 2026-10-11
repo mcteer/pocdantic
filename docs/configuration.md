@@ -321,3 +321,21 @@ death. Sixteen unresolved credential intents, 1,000 cases, 10,000 observations a
 Do not assume OAuth/SVID issuance stopped because a client timed out: automatic lifetime
 safety needs an independently reviewed server-completion bound and the applicable TTL;
 unknown bounds require explicit provider evidence and resolution.
+
+
+## Portable database authentication
+
+`DATABASE_AUTH_MODE=user-jwt` selects verified human JWT login to the configured
+`VAULT_JWT_AUTH_MOUNT` (default `jwt`) and required `VAULT_JWT_AUTH_ROLE`.
+`delegated-exchange` remains the default; its actor/exchange settings remain required.
+`VAULT_DATABASE_MOUNT` and `VAULT_DATABASE_ROLE` define the exact credentials path.
+Existing `VAULT_READ_PATH` works; conflicting explicit old/new targets are rejected.
+
+`OAUTH_TRUSTED_HOSTS` is a JSON array of up to 16 unique DNS names for additional
+OIDC endpoint hosts. `OAUTH_CA_FILE` and `VAULT_CA_FILE` select independent private
+CA bundles; `DATABASE_SSLROOTCERT` continues to select database trust. No TLS bypass
+is supported. Browser baseline needs LOGIN client credentials, issuer/discovery/audience
+and model/database settings; it needs no saved bearer or separate agent client.
+CLI live-portability uses private `BEARER_TOKEN` and `PORTABILITY_DENIED_TOKEN` inputs.
+Short names take precedence over supported legacy aliases. New fields follow the existing
+`POCDANTIC_` alias convention. Follow [setup and migration](setup.md) before changing routes.

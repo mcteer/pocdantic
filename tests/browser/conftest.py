@@ -75,6 +75,18 @@ def workspace_browser(workspace_settings, identity_provider, request, monkeypatc
         }
     )
 
+    if options.get("portable"):
+        config = config.model_copy(
+            update={
+                "database_auth_mode": "user-jwt",
+                "oauth_client_id": None,
+                "oauth_client_secret": None,
+                "verify_tenant_url": None,
+                "bearer_token": None,
+                "vault_jwt_auth_role": "human",
+            }
+        )
+
     def factory(snapshot, sink):
         return DatabaseBroker(
             config, snapshot.access_token, snapshot.principal.subject, http=app.state.auth.http

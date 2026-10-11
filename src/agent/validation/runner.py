@@ -69,6 +69,9 @@ async def run_suite(
     run = ValidationRun(
         suite=suite.label,
         suite_revision=suite.revision,
+        authentication_mode=settings.database_auth_mode if mode == "live" else None,
+        source_product=settings.oauth_provider if mode == "live" else None,
+        execution_origin="provider" if mode == "live" and factory is None else "synthetic",
         mode=mode,
         selected=tuple(s.label for s in selection),
         bounds=bounds,

@@ -224,6 +224,41 @@
         "execution",
         "cleanup"
       ]
+    },
+    {
+      "label": "live-portability",
+      "mode": "live",
+      "interactive": false,
+      "scenarios": [
+        {
+          "label": "user-jwt-read",
+          "factory": "user-jwt-read",
+          "expected_assertions": [
+            "user-jwt-read"
+          ],
+          "required_capabilities": [
+            "database-read"
+          ],
+          "criteria": [],
+          "required_sources": []
+        },
+        {
+          "label": "user-jwt-denial",
+          "factory": "user-jwt-denial",
+          "expected_assertions": [
+            "user-jwt-denial"
+          ],
+          "required_capabilities": [
+            "database-read"
+          ],
+          "criteria": [],
+          "required_sources": []
+        }
+      ],
+      "required_checks": [
+        "execution",
+        "cleanup"
+      ]
     }
   ]
 }

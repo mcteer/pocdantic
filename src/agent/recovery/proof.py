@@ -24,6 +24,7 @@ class Proof:
 
     receipt: Receipt
     lease_handle: str | None
+    token_accessor: str | None = None
 
 
 def invalid():
@@ -169,6 +170,8 @@ def verify_sources(store, item, sources, reviewer):
             not isinstance(r, dict) or r.get("type") not in {"request", "response"} for r in records
         ):
             invalid()
+        if getattr(item, "credential_kind", None) == "native-user-token":
+            return token_proof(store, item, records, digests, reviewer)
         request, response, identifier = native_pair(
             records,
             path=item.credential_path,
@@ -235,6 +238,7 @@ def verify_sources(store, item, sources, reviewer):
             invalid()
         receipt = Receipt(
             outcome=outcome,
+            credential_kind=getattr(item, "credential_kind", None),
             incident_id=item.incident_id,
             incident_revision=item.revision,
             operation_id=item.operation_id,
@@ -250,3 +254,92 @@ def verify_sources(store, item, sources, reviewer):
         raise
     except Exception:
         invalid()
+
+
+def token_proof(store, item, records, digests, reviewer):
+    """Verify plaintext accessor linkage from reviewed native login and cleanup pairs.
+
+    HMAC handles, token expiry and denied lookups cannot establish non-issuance or cleanup.
+    Missing audit access remains an explicit external repair requirement.
+    """
+    request, response, identifier = native_pair(
+        records,
+        path=item.credential_path,
+        operation="update",
+        namespace=item.provider_namespace,
+        correlation=item.operation_id,
+    )
+    if item.native_request_id and item.native_request_id != identifier:
+        invalid()
+    auth = (response.get("response") or {}).get("auth") or {}
+    accessor = auth.get("accessor")
+    outcome = "token_identified"
+    if (
+        allowed(request) is False
+        and allowed(response) is False
+        and response.get("error") == "permission denied"
+        and not auth
+        and not item.native_token
+        and not item.token_accessor
+    ):
+        outcome = "not_issued"
+        accessor = None
+    elif (
+        request.get("error")
+        or response.get("error")
+        or allowed(request) is not True
+        or allowed(response) is not True
+        or not isinstance(accessor, str)
+        or not 0 < len(accessor) <= 1024
+        or accessor.startswith("hmac-")
+        or item.token_accessor
+        and accessor != item.token_accessor
+    ):
+        invalid()
+    cleanup = [
+        r
+        for r in records
+        if r.get("request", {}).get("path")
+        in {"auth/token/revoke-self", "auth/token/revoke-accessor"}
+    ]
+    if cleanup:
+        if outcome == "not_issued" or len(cleanup) != 2:
+            invalid()
+        path = cleanup[0]["request"]["path"]
+        cr, cs, cleanup_id = native_pair(
+            records, path=path, operation="update", namespace=item.provider_namespace
+        )
+        bound = (
+            (cr.get("auth") or {}).get("accessor")
+            if path.endswith("revoke-self")
+            else (cr["request"].get("data") or {}).get("accessor")
+        )
+        if (
+            bound != accessor
+            or cleanup_id == identifier
+            or cr.get("error")
+            or cs.get("error")
+            or allowed(cr) is not True
+            or allowed(cs) is not True
+            or not isinstance(cs.get("response"), dict)
+            or cs["response"].get("warnings")
+            or cs["response"].get("data")
+        ):
+            invalid()
+        outcome = "revoked"
+    if len(records) != 2 + len(cleanup):
+        invalid()
+    receipt = Receipt(
+        outcome=outcome,
+        credential_kind="native-user-token",
+        incident_id=item.incident_id,
+        incident_revision=item.revision,
+        operation_id=item.operation_id,
+        environment_digest=item.environment_digest,
+        native_request_id=identifier,
+        native_response_id=identifier,
+        source_digests=tuple(digests),
+        reviewer_label=reviewer.strip(),
+        reviewed_at=now(),
+    )
+    return Proof(receipt, None, accessor)

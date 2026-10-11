@@ -39,7 +39,7 @@ def add_recovery_parser(subparsers):
         help="Private file below .local; at most two",
     )
     review.add_argument("--reviewer", required=True, help="Non-sensitive provenance reviewer label")
-    revoke = commands.add_parser("revoke", help="Synchronously clean up one exact known lease")
+    revoke = commands.add_parser("revoke", help="Synchronously clean up one exact owned credential")
     revoke.add_argument("--incident", dest="incident_id", required=True, type=UUID)
 
 
@@ -67,7 +67,8 @@ async def execute_recovery(args, *, settings=None, project=None, transport=None)
             output = result(store, "initialized" if changed else "unchanged")
             code = 0
         elif args.recovery_command == "migrate":
-            store.migrate()
+            changed = store.migrate()
+            output, code = result(store, "migrated" if changed else "unchanged"), 0
         elif args.recovery_command in {"import", "revoke"}:
             with store.effect():
                 journal = store.read()
@@ -111,7 +112,11 @@ async def execute_recovery(args, *, settings=None, project=None, transport=None)
                                 item.incident_id,
                                 item.revision,
                                 state="resolved" if terminal else "unresolved",
-                                lease_handle=proof.lease_handle,
+                                **(
+                                    {"token_accessor": proof.token_accessor}
+                                    if getattr(item, "credential_kind", None) == "native-user-token"
+                                    else {"lease_handle": proof.lease_handle}
+                                ),
                                 native_request_id=proof.receipt.native_request_id,
                                 receipt=proof.receipt,
                                 resolution=proof.receipt.outcome if terminal else None,
@@ -172,18 +177,35 @@ async def revoke_exact(store, item, *, transport=None):
     Cancellation retains the caller's effect lock until the HTTP worker drains. Intent
     precedes the call; a timeout or failed receipt leaves the incident blocked.
     """
-    if not item.lease_handle:
+    native = getattr(item, "credential_kind", None) == "native-user-token"
+    if not (
+        getattr(item, "native_token", None) or getattr(item, "token_accessor", None)
+        if native
+        else item.lease_handle
+    ):
         raise RecoveryError("recovery_evidence_required")
-    token = store.settings.vault_token
+    token = item.native_token if native and item.native_token else store.settings.vault_token
+    if not native and getattr(item, "parent_id", None):
+        parent = next((a for a in store.read().attempts if a.incident_id == item.parent_id), None)
+        if parent and parent.native_token and parent.state != "resolved":
+            token = parent.native_token
     if not token:
         raise RecoveryError("recovery_access_denied")
     item = store.update(item.incident_id, item.revision, state="cleanup_pending")
-    async with httpx.AsyncClient(
-        timeout=10, follow_redirects=False, trust_env=False, transport=transport
-    ) as http:
+    from agent.setup.http import client
+
+    async with client(store.settings, "vault", transport=transport) as http:
         vault = VaultClient(store.settings.vault_addr, store.settings.vault_namespace, http)
         worker = asyncio.create_task(
-            vault.revoke(token, item.lease_handle)
+            (
+                vault.revoke_self(token)
+                if native and item.native_token
+                else vault.request(
+                    "POST", "auth/token/revoke-accessor", token, {"accessor": item.token_accessor}
+                )
+                if native
+                else vault.revoke(token, item.lease_handle)
+            )
             if transport is not None
             else isolated_revoke(store, item, token)
         )
@@ -222,6 +244,7 @@ async def revoke_exact(store, item, *, transport=None):
             raise RecoveryError(reason) from None
         receipt = Receipt(
             outcome="revoked",
+            credential_kind=getattr(item, "credential_kind", None),
             incident_id=item.incident_id,
             incident_revision=item.revision,
             operation_id=item.operation_id,
@@ -247,6 +270,12 @@ async def isolated_revoke(store, item, token):
             "namespace": store.settings.vault_namespace,
             "lease": item.lease_handle,
             "token": token.get_secret_value(),
+            "kind": "native"
+            if getattr(item, "credential_kind", None) == "native-user-token"
+            else "lease",
+            "accessor": getattr(item, "token_accessor", None),
+            "self": bool(getattr(item, "native_token", None)),
+            "ca_file": store.settings.vault_ca_file,
         }
     ).encode()
     async with network_process(
@@ -271,11 +300,38 @@ async def cleanup_worker():
 
     try:
         data = decode_json(sys.stdin.buffer.read(8193))
-        if set(data) != {"address", "namespace", "lease", "token"}:
+        if set(data) != {
+            "address",
+            "namespace",
+            "lease",
+            "token",
+            "kind",
+            "accessor",
+            "self",
+            "ca_file",
+        }:
             raise ValueError()
-        async with httpx.AsyncClient(timeout=10, trust_env=False, follow_redirects=False) as http:
+        import ssl
+
+        async with httpx.AsyncClient(
+            timeout=10,
+            trust_env=False,
+            follow_redirects=False,
+            verify=ssl.create_default_context(cafile=data["ca_file"]),
+        ) as http:
             vault = VaultClient(data["address"], data["namespace"], http)
-            await vault.revoke(SecretStr(data["token"]), data["lease"])
+            token = SecretStr(data["token"])
+            if data["kind"] == "native":
+                if data["self"]:
+                    await vault.revoke_self(token)
+                else:
+                    await vault.request(
+                        "POST", "auth/token/revoke-accessor", token, {"accessor": data["accessor"]}
+                    )
+            elif data["kind"] == "lease":
+                await vault.revoke(token, data["lease"])
+            else:
+                raise ValueError()
         sys.stdout.write("revoked")
     except Exception as error:
         sys.stdout.write(

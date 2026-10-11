@@ -26,8 +26,10 @@ from .models import (
     REASONS,
     Anchor,
     AttemptV2,
+    AttemptV3,
     BoundOwnership,
     JournalV2,
+    JournalV3,
     LegacyOwnership,
     OperationalView,
     Receipt,
@@ -70,6 +72,22 @@ def environment_digest(settings):
         "workload_definition",
     )
     values = {name: getattr(settings, name) for name in names}
+    if (
+        settings.database_auth_mode != "delegated-exchange"
+        or settings.oauth_trusted_hosts
+        or settings.oauth_ca_file
+        or settings.vault_ca_file
+    ):
+        from agent.setup.http import ca_digest
+
+        values["portable"] = {
+            "mode": settings.database_auth_mode,
+            "mount": settings.vault_jwt_auth_mount,
+            "role": settings.vault_jwt_auth_role,
+            "trust": settings.oauth_trusted_hosts,
+            "oauth_ca": ca_digest(settings.oauth_ca_file),
+            "vault_ca": ca_digest(settings.vault_ca_file),
+        }
     values["vault_addr"] = (settings.vault_addr or "").rstrip("/").lower()
     values["database_host"] = (settings.database_host or "").lower()
     try:
@@ -100,6 +118,7 @@ class EffectOwner:
     used: bool = False
     incident_id: object = None
     binding: object = None
+    incident_ids: tuple = ()
 
     def require(self, store):
         """Reject released, foreign, or fabricated ownership before admitting an acquisition."""
@@ -237,13 +256,13 @@ class RecoveryStore:
                 raise RecoveryError()
         return decode_json(raw)
 
-    def _read(self, directory):
+    def _read(self, directory, *, check_environment=True):
         """Validate anchor, snapshot, and current environment while holding journal.lock."""
         anchor = Anchor.model_validate(self._read_file(directory, "anchor.json"))
         journal = parse_journal(self._read_file(directory, "state.json"))
         if anchor.installation_id != journal.installation_id:
             raise RecoveryError()
-        if journal.environment_digest != environment_digest(self.settings):
+        if check_environment and journal.environment_digest != environment_digest(self.settings):
             raise RecoveryError("recovery_environment_mismatch")
         return journal
 
@@ -257,9 +276,24 @@ class RecoveryStore:
         except Exception:
             raise RecoveryError() from None
 
+    @staticmethod
+    def _encode_snapshot(journal):
+        """Encode protected custody bytes for persistence and accurate capacity reservation.
+
+        These bytes include native secrets and must never be logged or publicly projected.
+        Ordinary model serialization remains masked.
+        """
+        snapshot = journal.model_dump(mode="json")
+        for item, encoded in zip(
+            getattr(journal, "attempts", ()), snapshot.get("attempts", ()), strict=True
+        ):
+            if isinstance(item, AttemptV3) and item.native_token:
+                encoded["native_token"] = item.native_token.get_secret_value()
+        return canonical(snapshot)
+
     def _write(self, directory, journal):
         """Commit a complete snapshot with file fsync, atomic replacement, and directory fsync."""
-        raw = canonical(journal)
+        raw = self._encode_snapshot(journal)
         if len(raw) > self.max_bytes:
             raise RecoveryError("recovery_capacity")
         name = str(uuid4()) + ".tmp"
@@ -302,9 +336,13 @@ class RecoveryStore:
                 self.settings.database_host,
                 self.settings.database_name,
                 self.settings.vault_addr,
-                self.settings.vault_audience,
                 self.settings.oauth_audience,
-                self.settings.oauth_client_id,
+                self.settings.vault_jwt_auth_role
+                if self.settings.database_auth_mode == "user-jwt"
+                else self.settings.vault_audience,
+                True
+                if self.settings.database_auth_mode == "user-jwt"
+                else self.settings.oauth_client_id,
             )
         ):
             raise RecoveryError("configuration_missing")
@@ -319,9 +357,9 @@ class RecoveryStore:
             try:
                 values = {
                     "anchor.json": Anchor(installation_id=installation),
-                    "state.json": JournalV2(
-                        installation_id=installation, environment_digest=digest
-                    ),
+                    "state.json": (
+                        JournalV3 if self.settings.database_auth_mode == "user-jwt" else JournalV2
+                    )(installation_id=installation, environment_digest=digest),
                 }
                 for name in (*values, *LOCKS):
                     fd = os.open(
@@ -370,11 +408,15 @@ class RecoveryStore:
             for a in journal.attempts
             if a.state != "resolved" or a.updated_at >= cutoff or a.incident_id in pins
         ]
+        parents = {getattr(a, "parent_id", None) for a in attempts}
+        attempts = [a for a in journal.attempts if a in attempts or a.incident_id in parents]
         if reserve:
             while (
                 len(attempts) >= 1000
-                or len(canonical(journal.model_copy(update={"attempts": tuple(attempts)})))
-                > MAX_BYTES - RECEIPT_RESERVE
+                or len(
+                    self._encode_snapshot(journal.model_copy(update={"attempts": tuple(attempts)}))
+                )
+                > self.max_bytes - RECEIPT_RESERVE
             ):
                 oldest = next(
                     (
@@ -382,6 +424,7 @@ class RecoveryStore:
                         for a in sorted(attempts, key=lambda x: x.updated_at)
                         if a.state == "resolved"
                         and a.incident_id not in pins
+                        and a.incident_id not in parents
                         and a.updated_at < cutoff
                     ),
                     None,
@@ -399,7 +442,7 @@ class RecoveryStore:
         try:
             with self._lock("journal.lock"), self._directory() as directory:
                 journal = self._read(directory)
-                if journal.schema_version != 2:
+                if journal.schema_version not in (2, 3):
                     raise RecoveryError("recovery_migration_required")
                 unfinished = [a for a in journal.attempts if a.state != "resolved"]
                 if unfinished:
@@ -421,7 +464,7 @@ class RecoveryStore:
                         "updated_at": now(),
                     }
                 )
-                if len(canonical(updated)) > MAX_BYTES - RECEIPT_RESERVE:
+                if len(self._encode_snapshot(updated)) > self.max_bytes - RECEIPT_RESERVE:
                     raise RecoveryError("recovery_capacity")
                 self._write(directory, updated)
                 owner.used = True
@@ -491,7 +534,7 @@ class RecoveryStore:
                     "updated_at": now(),
                 }
             )
-            if len(canonical(updated)) > MAX_BYTES - RECEIPT_RESERVE:
+            if len(self._encode_snapshot(updated)) > self.max_bytes - RECEIPT_RESERVE:
                 raise RecoveryError("recovery_capacity")
             self._write(directory, updated)
             return item
@@ -519,14 +562,18 @@ class RecoveryStore:
                     "state",
                     "native_request_id",
                     "lease_handle",
+                    "native_token",
+                    "token_accessor",
                     "reason_code",
                     "resolution",
                     "receipt",
                 }:
                     raise RecoveryError("recovery_evidence_invalid")
-                if changes.get("state", item.state) not in allowed[item.state]:
+                if "state" in changes and changes["state"] not in allowed[item.state]:
                     raise RecoveryError("recovery_evidence_invalid")
-                for key in ("lease_handle", "native_request_id"):
+                for key in ("lease_handle", "native_request_id", "native_token", "token_accessor"):
+                    if not hasattr(item, key):
+                        continue
                     if getattr(item, key) and changes.get(key, getattr(item, key)) != getattr(
                         item, key
                     ):
@@ -616,7 +663,12 @@ class RecoveryStore:
             return OperationalView(authentication=authentication, active_work=active_work)
         try:
             journal = self.read()
-            active_ids = {owner.incident_id for owner in self.owners if owner.active}
+            active_ids = {
+                identifier
+                for owner in self.owners
+                if owner.active
+                for identifier in (owner.incident_id, *owner.incident_ids)
+            }
             blocked = [
                 a
                 for a in journal.attempts
@@ -645,32 +697,44 @@ class RecoveryStore:
             )
 
     def migrate(self):
-        """Atomically convert v1 state only, under offline workspace/effect ownership.
+        """Preserve legacy history; explicitly adopt a changed context only after all cleanup.
 
-        No native fields, receipts, per-attempt revisions or timestamps are changed.
-        An orphan temporary file is never promoted after a crash.
+        Unknown outcomes cannot migrate into new authority. Old receipts keep their original
+        environment and timestamps. This operation is local and makes no provider requests.
         """
         with self.workspace(), self.effect(), self._lock("journal.lock"), self._directory() as fd:
-            journal = self._read(fd)
-            if journal.schema_version == 2:
+            journal = self._read(fd, check_environment=False)
+            current = environment_digest(self.settings)
+            changed = current != journal.environment_digest
+            if changed and any(a.state != "resolved" for a in journal.attempts):
+                raise RecoveryError("recovery_environment_mismatch")
+            desired = (
+                3
+                if self.settings.database_auth_mode == "user-jwt"
+                or journal.schema_version == 3
+                or changed
+                else 2
+            )
+            if journal.schema_version == desired and not changed:
                 return False
             attempts = tuple(
                 AttemptV2.model_validate(
                     a.model_dump() | {"schema_version": 2, "ownership": LegacyOwnership()}
                 )
+                if journal.schema_version == 1
+                else a
                 for a in journal.attempts
             )
-            updated = JournalV2.model_validate(
+            updated = (JournalV3 if desired == 3 else JournalV2).model_validate(
                 journal.model_dump()
                 | {
-                    "schema_version": 2,
+                    "schema_version": desired,
+                    "environment_digest": current,
                     "attempts": attempts,
                     "revision": journal.revision + 1,
                     "updated_at": now(),
                 }
             )
-            if len(canonical(updated)) > self.max_bytes:
-                raise RecoveryError("recovery_capacity")
             self._write(fd, updated)
             return True
 
@@ -688,3 +752,59 @@ class RecoveryStore:
                     else "acquisition_uncertain",
                 )
         return self.read()
+
+    def begin_portable(self, owner, *, kind, parent_id=None):
+        """Reserve linked custody before dispatch; only the owned token admits its child."""
+        from agent.setup.http import ca_digest
+
+        owner.require(self)
+        with self._lock("journal.lock"), self._directory() as directory:
+            journal = self._read(directory)
+            if journal.schema_version != 3:
+                raise RecoveryError("recovery_migration_required")
+            unfinished = [a for a in journal.attempts if a.state != "resolved"]
+            if kind == "native-user-token":
+                if owner.used or unfinished or parent_id:
+                    raise RecoveryError("recovery_busy")
+                path = f"auth/{self.settings.vault_jwt_auth_mount}/login"
+            elif kind == "database-lease":
+                parent = next((a for a in unfinished if a.incident_id == parent_id), None)
+                if (
+                    not isinstance(parent, AttemptV3)
+                    or parent_id not in owner.incident_ids
+                    or parent.state != "acquired"
+                    or len(unfinished) != 1
+                    or parent.ownership != owner.binding
+                ):
+                    raise RecoveryError("recovery_busy")
+                path = self.settings.vault_read_path
+            else:
+                raise RecoveryError("recovery_evidence_invalid")
+            item = AttemptV3(
+                incident_id=uuid4(),
+                operation_id=uuid4(),
+                environment_digest=journal.environment_digest,
+                credential_path=path,
+                ownership=owner.binding,
+                credential_kind=kind,
+                authentication_mode="user-jwt",
+                parent_id=parent_id,
+                provider_address=self.settings.vault_addr,
+                provider_namespace=self.settings.vault_namespace,
+                provider_ca_digest=ca_digest(self.settings.vault_ca_file),
+            )
+            updated = JournalV3.model_validate(
+                journal.model_dump()
+                | {
+                    "attempts": (*self._prune(journal, reserve=True), item),
+                    "revision": journal.revision + 1,
+                    "updated_at": now(),
+                }
+            )
+            if len(self._encode_snapshot(updated)) > self.max_bytes - RECEIPT_RESERVE:
+                raise RecoveryError("recovery_capacity")
+            self._write(directory, updated)
+            owner.used = True
+            owner.incident_ids = (*owner.incident_ids, item.incident_id)
+            owner.incident_id = item.incident_id
+            return item

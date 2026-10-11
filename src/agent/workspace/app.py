@@ -43,7 +43,10 @@ def prerequisites(config, *, supplied_model=False):
         for name in ("LOGIN_CLIENT_ID", "LOGIN_CLIENT_SECRET", "OAUTH_AUDIENCE")
         if not getattr(config, name.lower())
     ]
-    if not (config.oauth_discovery_url or config.verify_tenant_url):
+    if not (
+        config.oauth_discovery_url
+        or (config.oauth_provider == "verify" and config.verify_tenant_url)
+    ):
         missing.append("OAUTH_DISCOVERY_URL")
     if not 1 <= config.timeout_seconds <= 180:
         missing.append("TIMEOUT_SECONDS")
@@ -111,9 +114,9 @@ def create_workspace_app(
             if str(error) == "recovery_busy":
                 recovery_store.release_workspace()
                 raise
-        async with httpx.AsyncClient(
-            timeout=15, follow_redirects=False, trust_env=False, transport=http_transport
-        ) as http:
+        from agent.setup.http import client
+
+        async with client(config, "oauth", transport=http_transport, timeout=15) as http:
             app.state.auth = WorkspaceAuth(config, http, origin)
             app.state.diagnostics = diagnostics
             app.state.recovery = recovery_store
@@ -327,6 +330,15 @@ def create_workspace_app(
             )
         restriction = manager.containment_view(current if signed else None)
         return view.model_copy(update={"connection": connection, "containment": restriction})
+
+    @app.get("/workspace/capabilities")
+    async def capabilities(request: Request):
+        """Expose bounded local setup facts; do not contact providers or grant authority."""
+        if context(request) is None or request.query_params:
+            raise SecurityError("request_forbidden")
+        from agent.setup.readiness import local_check
+
+        return local_check(config, project=recovery_store.project).model_dump(mode="json")
 
     @app.get("/api/governance")
     async def governance_view(request: Request):

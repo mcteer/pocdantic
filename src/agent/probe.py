@@ -13,13 +13,17 @@ from .vault import VaultClient
 from .verify import VerifyClient
 
 
-def oauth_config(settings: Settings, *, api: bool = False) -> OAuthConfig:
+def oauth_config(
+    settings: Settings, *, api: bool = False, login: bool = False, verification: bool = False
+) -> OAuthConfig:
     """Select API-client or agent OAuth settings and derive the configured provider
     endpoints.
     """
     client_id = settings.verify_api_client_id if api else settings.oauth_client_id
     secret = settings.verify_api_client_secret if api else settings.oauth_client_secret
-    if not client_id or not secret:
+    if login:
+        client_id, secret = settings.login_client_id, settings.login_client_secret
+    if not verification and (not client_id or not secret):
         raise SecurityError("oauth_client_missing")
     discovery = settings.oauth_discovery_url
     if not discovery and settings.oauth_provider == "verify" and settings.verify_tenant_url:
@@ -40,13 +44,19 @@ def oauth_config(settings: Settings, *, api: bool = False) -> OAuthConfig:
         client_id=client_id,
         client_secret=secret,
         auth_method=settings.oauth_auth_method,
+        trusted_hosts=frozenset(settings.oauth_trusted_hosts),
     )
 
 
 async def probe(settings: Settings) -> dict:
     """Read-only checks. Only safe summaries leave this function."""
     result = {"verify": {}, "vault": {}, "logfire": {"configured": bool(settings.logfire_token)}}
-    async with httpx.AsyncClient(timeout=15, follow_redirects=False) as http:
+    from agent.setup.http import client as trusted_client
+
+    async with (
+        trusted_client(settings, "oauth", timeout=15) as http,
+        trusted_client(settings, "vault", timeout=15) as vault_http,
+    ):
         try:
             oauth = OAuthClient(oauth_config(settings, api=True), http)
             metadata = await oauth.metadata()
@@ -89,8 +99,8 @@ async def probe(settings: Settings) -> dict:
             result["verify"]["status"] = str(error)
         if settings.vault_addr:
             try:
-                vault = VaultClient(settings.vault_addr, settings.vault_namespace, http)
-                health = await http.get(
+                vault = VaultClient(settings.vault_addr, settings.vault_namespace, vault_http)
+                health = await vault_http.get(
                     settings.vault_addr + "/v1/sys/health", params={"standbyok": "true"}
                 )
                 result["vault"]["health_http"] = health.status_code

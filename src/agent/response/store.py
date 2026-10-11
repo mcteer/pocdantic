@@ -170,7 +170,7 @@ class ResponseStore(RecoveryStore):
                 or self.recovery.root.is_symlink()
             ):
                 recovery = self.recovery.read()
-                if recovery.schema_version != 2:
+                if recovery.schema_version not in (2, 3):
                     raise ResponseError("response_migration_required")
             install = uuid4()
             anchor = ResponseAnchor(

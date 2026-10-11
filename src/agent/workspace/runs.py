@@ -86,6 +86,8 @@ class MemorySink:
             job.current_incident = private["incident_id"]
             job.incidents.add(private["incident_id"])
             self.manager.recovery_incidents.add(private["incident_id"])
+        elif name == "recovery_completed":
+            self.manager.recovery_incidents.discard(private["incident_id"])
         elif name == "approval_started":
             approval, action, principal = (
                 private["approval"],

@@ -1,9 +1,12 @@
-"""Trusted database credential flow using human and workload token delegation.
+"""Trusted database flow with explicit user-JWT and delegated-exchange routes.
 
-The model supplies only a bounded record ID. This adapter verifies both identities,
-requests narrowly scoped Vault credentials, runs fixed SQL, and arranges cleanup.
+The model supplies only a bounded record ID. This adapter verifies the selected route's identities,
+requests scoped Vault credentials, runs fixed SQL, and arranges cleanup. User-JWT mode
+verifies the human, logs in to a constrained Vault role and tracks a native token plus lease.
+Delegated mode additionally verifies the workload actor and exact authorization details.
 
-The human token identifies whose permission is used; the actor token identifies the
+In delegated mode, the human token identifies whose permission is used;
+the actor token identifies the
 agent client acting for them. Authorization details describe the exact provider path
 and operations requested, rather than asking for a general-purpose Vault token.
 """
@@ -11,7 +14,7 @@ and operations requested, rather than asking for a general-purpose Vault token.
 import json
 import re
 from collections.abc import Callable
-from contextlib import nullcontext
+from contextlib import AsyncExitStack, nullcontext
 from dataclasses import dataclass, field
 from functools import partial
 from uuid import uuid4
@@ -23,6 +26,7 @@ from .oauth import JWTVerifier, OAuthClient
 from .probe import oauth_config
 from .security import SecurityError
 from .settings import Settings
+from .setup.http import client as trusted_client
 from .vault import VaultClient, read_postgres, validate_path
 
 
@@ -88,6 +92,7 @@ class DatabaseBroker:
             "cleanup_delegation_verified": ("cleanup", "verified"),
             "database_read_completed": ("database", "completed"),
             "lease_revoked": ("cleanup", "revoked"),
+            "token_revoked": ("cleanup", "revoked"),
         }
         if self.operation_observer and stage in typed:
             self.operation_observer.record(*typed[stage])
@@ -128,6 +133,8 @@ class DatabaseBroker:
         credentials remain inside this adapter and are not returned with the rows.
         """
         s = self.settings
+        if s.database_auth_mode == "user-jwt":
+            return await self._read_user_jwt(record_id, store, owner)
         if not all(
             (s.vault_addr, s.vault_audience, s.oauth_audience, s.database_host, s.database_name)
         ):
@@ -135,9 +142,12 @@ class DatabaseBroker:
         context = (
             nullcontext(self.http)
             if self.http is not None
-            else httpx.AsyncClient(timeout=15, follow_redirects=False, trust_env=False)
+            else trusted_client(s, "oauth", timeout=15)
         )
-        async with context as http:
+        async with context as http, AsyncExitStack() as provider_stack:
+            from agent.setup.http import client
+
+            vault_http = self.http or await provider_stack.enter_async_context(client(s, "vault"))
             oauth = OAuthClient(oauth_config(s), http)
             user_verifier = JWTVerifier(oauth, s.oauth_audience, token_typ=s.oauth_access_token_typ)
             principal = await user_verifier.verify(self.subject_token)
@@ -231,7 +241,7 @@ class DatabaseBroker:
             vault = VaultClient(
                 s.vault_addr,
                 s.vault_namespace,
-                http,
+                vault_http,
                 operation_observer=self.operation_observer,
                 credential_guard=self.run_guard,
                 credential_lifecycle=CredentialLifecycle(
@@ -287,3 +297,113 @@ class DatabaseBroker:
                 )
                 self.observe("database_read_completed")
                 return rows
+
+    async def _read_user_jwt(self, record_id, store, owner):
+        """Read under verified human JWT authentication without actor/exchange fallback."""
+        from contextlib import AsyncExitStack
+
+        from .recovery.lifecycle import CredentialLifecycle
+        from .recovery.models import valid_handle
+        from .setup.http import client
+
+        s = self.settings
+        if not all(
+            (
+                s.vault_addr,
+                s.vault_jwt_auth_role,
+                s.oauth_audience,
+                s.database_host,
+                s.database_name,
+            )
+        ):
+            raise SecurityError("database_integration_not_configured")
+        async with AsyncExitStack() as stack:
+            oauth_http = self.http or await stack.enter_async_context(client(s, "oauth"))
+            vault_http = self.http or await stack.enter_async_context(client(s, "vault"))
+            principal = await JWTVerifier(
+                OAuthClient(oauth_config(s, verification=True), oauth_http),
+                s.oauth_audience,
+                token_typ=s.oauth_access_token_typ,
+            ).verify(self.subject_token)
+            self.run_guard.check()
+            if (
+                principal.subject != self.subject
+                or "database:read" not in principal.scopes
+                or (principal.issuer, principal.subject)
+                != (self.run_guard.binding.issuer, self.run_guard.binding.subject)
+            ):
+                raise SecurityError("database_subject_invalid")
+            owner.binding = self.run_guard.ownership()
+            self.observe("subject_verified")
+            token_lifecycle = CredentialLifecycle(
+                store,
+                owner,
+                self.operation_observer,
+                kind="native-user-token",
+                on_completed=partial(self.observe, "token_revoked"),
+            )
+            vault = VaultClient(
+                s.vault_addr,
+                s.vault_namespace,
+                vault_http,
+                credential_guard=self.run_guard,
+                operation_observer=self.operation_observer,
+                credential_lifecycle=token_lifecycle,
+            )
+            async with vault.user_token(
+                self.subject_token,
+                s.vault_jwt_auth_mount,
+                s.vault_jwt_auth_role,
+                operation_timeout=s.timeout_seconds,
+                lifecycle=token_lifecycle,
+            ) as token:
+                lease_lifecycle = CredentialLifecycle(
+                    store,
+                    owner,
+                    self.operation_observer,
+                    kind="database-lease",
+                    parent_id=token_lifecycle.item.incident_id,
+                    on_completed=partial(self.observe, "lease_revoked"),
+                )
+                lease_vault = VaultClient(
+                    s.vault_addr,
+                    s.vault_namespace,
+                    vault_http,
+                    credential_guard=self.run_guard,
+                    operation_observer=self.operation_observer,
+                    credential_lifecycle=lease_lifecycle,
+                )
+
+                async def revoke(handle):
+                    """Check exact private ownership before role-scoped lease cleanup."""
+                    if (
+                        not valid_handle(s.vault_read_path, handle)
+                        or lease_lifecycle.item.lease_handle != handle
+                    ):
+                        raise SecurityError("vault_lease_scope_invalid")
+                    await lease_vault.revoke(token, handle)
+
+                self.run_guard.check()
+                import asyncio
+
+                async with asyncio.timeout(s.timeout_seconds):
+                    async with lease_vault.credentials(
+                        token,
+                        s.vault_read_path,
+                        revoke=revoke,
+                        cleanup_timeout=20,
+                        cleanup_drain_timeout=0,
+                    ) as lease:
+                        self.observe("lease_acquired")
+                        self.run_guard.check()
+                        rows = await read_postgres(
+                            lease,
+                            host=s.database_host,
+                            port=s.database_port,
+                            database=s.database_name,
+                            record_id=record_id,
+                            sslrootcert=s.database_sslrootcert,
+                            username_suffix=s.database_username_suffix,
+                        )
+                        self.observe("database_read_completed")
+                        return rows

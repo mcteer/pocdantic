@@ -107,6 +107,12 @@ async function loadSession() {
   $('issues').textContent = session.configuration_issues.length ?
     'Optional integrations need configuration: ' + session.configuration_issues.join(', ') : '';
   if (session.login_error) showError(session.login_error);
+  const capabilities = await api('/workspace/capabilities');
+  $('capabilities').replaceChildren(...capabilities.observations.map(item => {
+    const row = document.createElement('li');
+    row.textContent = item.feature.replaceAll('-', ' ') + ': ' + item.state;
+    return row;
+  }));
   await loadOperations();
   if (session.signed_in) await loadGovernance();
   diagnosticFreshness();

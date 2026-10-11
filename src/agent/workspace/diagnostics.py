@@ -77,14 +77,18 @@ def check_value(key, category, state, reason=None):
     )
 
 
-async def http_observation(url, transport=None):
+async def http_observation(url, transport=None, ca_file=None):
     """Read at most 64 KiB from a fixed public HTTPS endpoint, with no redirects or ambient auth."""
     p = urlsplit(url)
     if p.scheme != "https" or not p.hostname or p.username or p.password or p.query or p.fragment:
         return "configuration_missing"
     try:
         async with httpx.AsyncClient(
-            timeout=10, follow_redirects=False, trust_env=False, transport=transport
+            timeout=10,
+            follow_redirects=False,
+            trust_env=False,
+            transport=transport,
+            verify=__import__("ssl").create_default_context(cafile=ca_file),
         ) as http:
             async with http.stream("GET", url) as response:
                 raw = bytearray()
@@ -168,9 +172,24 @@ class Diagnostics:
     async def _http(self, url):
         """Use a controlled test transport or the production process boundary."""
         return (
-            await http_observation(url, self.transport)
+            await http_observation(
+                url,
+                self.transport,
+                self.settings.vault_ca_file
+                if url.startswith((self.settings.vault_addr or "") + "/v1/")
+                else self.settings.oauth_ca_file,
+            )
             if self.transport is not None
-            else await self._process("http", url)
+            else await self._process(
+                "http",
+                url,
+                (
+                    self.settings.vault_ca_file
+                    if url.startswith((self.settings.vault_addr or "") + "/v1/")
+                    else self.settings.oauth_ca_file
+                )
+                or "",
+            )
         )
 
     async def _tcp(self, host, port):
@@ -210,7 +229,16 @@ class Diagnostics:
         s = self.settings
         missing = bool(
             s.database_host
-            and not all((s.database_name, s.vault_addr, s.vault_audience, s.oauth_audience))
+            and not all(
+                (
+                    s.database_name,
+                    s.vault_addr,
+                    s.vault_jwt_auth_role
+                    if s.database_auth_mode == "user-jwt"
+                    else s.vault_audience,
+                    s.oauth_audience,
+                )
+            )
         )
         checks.append(
             check_value(
@@ -243,7 +271,7 @@ class Diagnostics:
             )
         identity = s.oauth_discovery_url or (
             s.verify_tenant_url + "/v1.0/endpoint/default/.well-known/openid-configuration"
-            if s.verify_tenant_url
+            if s.oauth_provider == "verify" and s.verify_tenant_url
             else None
         )
         jobs = (
@@ -317,7 +345,9 @@ if __name__ == "__main__":
     try:
         kind, *arguments = sys.argv[1:]
         operation = (
-            http_observation(arguments[0])
+            http_observation(
+                arguments[0], ca_file=(arguments[1] or None) if len(arguments) > 1 else None
+            )
             if kind == "http"
             else tcp_observation(arguments[0], int(arguments[1]))
         )

@@ -6,7 +6,14 @@ out of representations; URL normalization does not replace adapter trust checks.
 
 from typing import Literal
 
-from pydantic import AliasChoices, AliasGenerator, Field, SecretStr, field_validator
+from pydantic import (
+    AliasChoices,
+    AliasGenerator,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -29,6 +36,16 @@ class Settings(BaseSettings):
     google_api_key: SecretStr | None = Field(
         default=None, validation_alias="GOOGLE_API_KEY", repr=False
     )
+    database_auth_mode: Literal["delegated-exchange", "user-jwt"] = "delegated-exchange"
+    oauth_trusted_hosts: tuple[str, ...] = ()
+    oauth_ca_file: str | None = Field(default=None, repr=False)
+    vault_ca_file: str | None = Field(default=None, repr=False)
+    portability_denied_token: SecretStr | None = Field(default=None, repr=False)
+    vault_jwt_auth_mount: str = "jwt"
+    vault_jwt_auth_role: str | None = Field(default=None, repr=False)
+    vault_database_mount: str | None = Field(default=None, repr=False)
+    vault_database_role: str | None = Field(default=None, repr=False)
+
     oauth_provider: Literal["verify", "generic"] = "verify"
     oauth_issuer: str | None = None
     oauth_discovery_url: str | None = None
@@ -136,3 +153,36 @@ class Settings(BaseSettings):
         if value and not str(value).startswith("https://"):
             value = "https://" + str(value)
         return value.rstrip("/") if value else None
+
+    @field_validator("vault_jwt_auth_role", mode="before")
+    @classmethod
+    def optional_jwt_role(cls, value):
+        """Treat a fresh template's empty role as missing, without inventing a role."""
+        return None if value == "" else value
+
+    @field_validator("oauth_trusted_hosts")
+    @classmethod
+    def trust_hosts(cls, value):
+        """Reject implicit or unbounded endpoint trust before constructing clients."""
+        from .setup.models import hosts
+
+        return hosts(value)
+
+    @model_validator(mode="after")
+    def database_target(self):
+        """Resolve custom targets while preserving explicit legacy configuration precedence."""
+        from .setup.models import DatabaseTarget
+
+        legacy = DatabaseTarget.from_path(self.vault_read_path)
+        if self.vault_database_mount is not None or self.vault_database_role is not None:
+            target = DatabaseTarget(
+                mount=self.vault_database_mount or legacy.mount,
+                role=self.vault_database_role or legacy.role,
+            )
+            if "vault_read_path" in self.model_fields_set and legacy != target:
+                raise ValueError("conflicting_database_target")
+            self.vault_read_path = target.credential_path
+        DatabaseTarget.path(self.vault_jwt_auth_mount)
+        if self.vault_jwt_auth_role is not None:
+            DatabaseTarget.path(self.vault_jwt_auth_role)
+        return self
