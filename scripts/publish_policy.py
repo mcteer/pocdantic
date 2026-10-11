@@ -28,6 +28,17 @@ def generated_private(name: str) -> bool:
     """
     p = PurePosixPath(name)
     if p.name in {
+        "payload.json",
+        "seal.json",
+        "criteria.md",
+        "gaps.md",
+        "measurements.json",
+        "readout.md",
+        "reproduce.md",
+        "reset.md",
+        "inventory.json",
+        "evidence-index.json",
+        "role-records.json",
         "providers.draft.json",
         "config.draft.json",
         "secrets.json",
@@ -49,6 +60,10 @@ def generated_private(name: str) -> bool:
         "report.json",
         "report.md",
     }:
+        return True
+    if p.name.startswith(
+        ("attachment-", "core-", "dossier-", "measurement-", "package-", "handoff-")
+    ):
         return True
     return p.suffix in {".json", ".md", ".raw", ".jsonl"} and p.name.startswith(
         (
@@ -88,6 +103,18 @@ def private_content(name: str, data: bytes) -> bool:
         return False
     if compact_token(data):
         return True
+    # Closeout identity/digest combinations remain private even under renaming or damage.
+    for keys in (
+        (b"dossier_id", b"inventory_id", b"records"),
+        (b"assessment_id", b"environment_digest", b"members"),
+        (b"measurement_id", b"experiment_id", b"dependencies"),
+        (b"review_id", b"subject_id", b"attestations"),
+        (b"package_id", b"assessment_digest", b"review_dependencies"),
+        (b"handoff_id", b"package_digest", b"recorded_status"),
+        (b"profile_id", b"raw_digest", b"facts"),
+    ):
+        if all(re.search(rb'"' + key + rb'"\s*:', data) for key in keys):
+            return True
     # Recognizable private protocol fragments remain private even when JSON is damaged.
     if all(
         re.search(rb'"' + key + rb'"\s*:', data)

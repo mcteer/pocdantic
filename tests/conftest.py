@@ -251,3 +251,6 @@ def governance_isolation(request, monkeypatch, tmp_path):
     monkeypatch.setattr(validation, "project_root", lambda: tmp_path)
     monkeypatch.setattr(recovery, "project_root", lambda: tmp_path)
     monkeypatch.setattr(commands, "project_root", lambda: tmp_path)
+
+
+from closeout_support import closeout_project  # noqa: F401, E402

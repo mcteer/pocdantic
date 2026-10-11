@@ -232,3 +232,12 @@ All ten native checks stay blocked and name their provider owner, missing prereq
 concrete action and expected recheck. Follow the existing separately authorized native workflows
 linked in [the contract](specs/009-security-regression/contracts/runtime.md#native-function-12-dispositions).
 Demo-tier native audit is unavailable; synthetic success cannot promote customer acceptance.
+
+## Closeout checks
+
+`uv run pytest -q tests/test_closeout_*.py` covers local evidence extraction, all fifteen
+criteria, four count scenarios, review conflicts, packages, privacy and bounds. Fixtures deny
+provider/network/subprocess setup and use temporary private stores. The complete repository
+suite and two-profile security regression remain required. `agent closeout` is installed
+runtime code; it never imports or launches contributor scripts. Capture a separately completed
+regression run as software evidence. No new environment variables are needed.

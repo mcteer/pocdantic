@@ -774,3 +774,185 @@ Provider permission sets now serialize in sorted order, making policy fingerprin
 across JSON roundtrips. Recheck existing multi-control enrollment through the
 [provider readiness workflow](#provider-remediation) before reusing native evidence
 fingerprinted with older serialization. Preserve existing records during review.
+
+## PoC closeout
+
+`agent closeout` guides the four demonstrations and collects evidence into `.local/closeout/`.
+It does not execute guides, send phone prompts, obtain credentials, provision users or change
+provider settings. Existing `agent validate closeout` remains the older live-case aggregate.
+Closeout can package blocked evidence so owners can review exact gaps.
+
+Prepare an inventory file with mode `0600` beneath an owned `0700` directory. Use real reviewed
+version/edition, deployment and policy fingerprints; never copy credentials into it. The
+following abbreviated example is synthetic; replace every UUID/reference/digest locally.
+Optional fields shown as null mean unknown, which blocks proof requiring them.
+
+```json
+{
+  "schema_version": 1,
+  "implementation_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "dependency_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "definitions": [{"reference":"agent-definition","digest":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}],
+  "policies": [{"reference":"read-policy","digest":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}],
+  "datasets": [{"reference":"fixture","digest":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}],
+  "owners": ["agent_engineering","verify_owner","vault_owner","vip_owner","customer_security"],
+  "sources": [{
+    "profile_id":"11111111-1111-4111-8111-111111111111",
+    "product":"vault", "version":"reviewed-version", "edition":"reviewed-edition",
+    "instance":"private-instance", "cluster":"private-cluster", "namespace":"private-namespace",
+    "format":"native-facts-v1", "schema_digest":"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "capabilities":{"audit":"unavailable"}, "clock_uncertainty":0.0, "reporting_delay":null,
+    "records_pointer":"", "fact_kind":null, "proof_labels":["sql-read"],
+    "selectors":[{"field":"source_event_id","pointer":"/event/id"},
+      {"field":"occurred_at","pointer":"/event/time"},
+      {"field":"operation_ref","pointer":"/operation"},
+      {"field":"fact_kind","pointer":"/kind"},
+      {"field":"values","pointer":"/values"}]
+  }]
+}
+```
+
+Profiles accept at most sixteen exact JSON Pointers. `fact_kind` may fix one kind, or a
+`fact_kind` selector may extract one of the eleven closed kinds from original source bytes.
+A `values` selector extracts its typed object; `values_FIELD` selectors extract individual
+fields instead. Optional `actor`, `subject`, `resource`, `generation` and `obligation` selectors
+bind original correlations and one of the profile's compiled `proof_labels`. There are no
+expressions or free-form predicates. Missing relations remain blocked.
+Native `operation_result` values may additionally carry `lease_ref`, finite `ttl_seconds`,
+`permission_groups`, `embedded_secrets`, `adapter_isolated` and `deployment_digest`. Lease,
+configuration and isolation claims require these actual values and the frozen implementation
+digest; an operation-success label alone cannot satisfy them. A schema-compatible
+operator-created envelope stays `operator`; declaring `native` also requires original
+source bytes and explicit source-owner/extraction review. See the
+[typed fact fields and original proof matrix](../specs/010-poc-closeout/contracts/runtime.md#criterion-proof-matrix).
+
+```sh
+uv run agent closeout prepare --inventory PRIVATE_INVENTORY_PATH
+uv run agent closeout guide --dossier DOSSIER_UUID --use-case UC1
+uv run agent closeout guide --dossier DOSSIER_UUID --experiment agent-repeat
+uv run agent closeout inspect --dossier DOSSIER_UUID
+```
+
+`inspect` supplies current revision, environment/profile digests and opaque artifact hashes
+needed for review inputs, without disclosing native names or source content. Every mutation
+requires that current revision; use the returned next revision. `amend --inventory PATH`
+appends an environment change and preserves old evidence as historical. It does not reset
+quotas or erase failed demonstrations.
+
+After separately authorized demonstrations, capture complete existing evidence promptly:
+
+```sh
+uv run agent closeout capture --dossier DOSSIER_UUID --revision N --kind validation --member RUN_UUID
+uv run agent closeout capture --dossier DOSSIER_UUID --revision N --kind response --member INCIDENT_UUID
+uv run agent closeout capture --dossier DOSSIER_UUID --revision N --kind governance --member CANDIDATE_UUID
+uv run agent closeout capture --dossier DOSSIER_UUID --revision N --kind regression --member REGRESSION_UUID
+uv run agent closeout import --dossier DOSSIER_UUID --revision N --manifest PRIVATE_MANIFEST_PATH --input PRIVATE_SOURCE_PATH
+uv run agent closeout assess --dossier DOSSIER_UUID --revision N
+uv run agent closeout report --dossier DOSSIER_UUID --assessment ASSESSMENT_UUID
+```
+
+Captured native member profiles additionally pin `member_environment_digest` to the original
+member's deployment digest. Unsupported legacy snapshots stay qualified; recapture complete
+runs instead of editing old files. Provider evidence already outside its original freshness
+window cannot be renewed by an import date. Inspection preserves captured outcomes while
+reporting changed code/context/sources, missing originals and expired controls separately.
+
+An import manifest contains `schema_version:1`, `profile_id`, `format`, `provenance`
+(`synthetic|operator|native`), original-byte `input_digest`, UTC `observed_at`, the dossier's
+`environment_digest`, local UUID `scope`, and explicit `complete`. Formats are
+`vault-audit-v1|vault-audit-v2|verify-events-v1|logfire-v1|logfire-v2|native-facts-v1|
+vault-activity-v1|execution-roster-v1|entity-mapping-v1|attachment-v1`.
+Activity additionally requires `first_use_field` (`client_first_used_time` or
+`client_first_usage_time`), `period_start`, `period_end`, and 1–16 `mounts`.
+Attachments instead require `media_type` (`text/plain|image/png|image/jpeg`). Known secret
+fields/token material, invalid signatures, oversized files and unsupported shapes fail
+before ingestion. Raw originals remain private and are excluded from packages.
+
+For client counts, obtain a real cohort and approved execution surface from the provider
+owners. Import the pre-operation activity, entity/alias mapping and cohort before preparing:
+
+```json
+{
+  "scenario":"agent-obo-users", "profile_id":"11111111-1111-4111-8111-111111111111",
+  "baseline_id":"22222222-2222-4222-8222-222222222222",
+  "mapping_id":"33333333-3333-4333-8333-333333333333",
+  "cohort_id":"44444444-4444-4444-8444-444444444444",
+  "mounts":["private-mount"], "period_start":"2026-10-01T00:00:00Z",
+  "period_end":"2026-11-01T00:00:00Z", "other_consumers":[]
+}
+```
+
+```sh
+uv run agent closeout experiment --dossier DOSSIER_UUID --revision N --input PRIVATE_EXPERIMENT_PATH
+uv run agent closeout measure --dossier DOSSIER_UUID --revision N --experiment EXPERIMENT_UUID --input PRIVATE_MEASUREMENT_PATH
+```
+
+Then externally perform exactly 100 successful distinct operations and collect complete
+post-operation mappings, roster and final export after the owner-reviewed reporting delay.
+A measurement input has `final_id`, `roster_id`, `mapping_id`, plus optional `explanations`.
+Each explanation contains private `client_id`, `classification` (`unrelated|non-entity`) and
+1–32 source UUID `references` proving that classification. Unrelated clients also appear in
+the experiment's declared `other_consumers`. Unexplained clients prevent pass.
+
+All three counting formats are JSONL with no silently discarded rows:
+
+- Activity: `client_id`, `client_type` (`entity|non-entity-token|acme|secret-sync`),
+  `namespace_id`, `mount_accessor`, declared first-use timestamp, optional private `metadata`.
+- Mapping: `issuer`, `subject`, `entity_id`, `namespace_id`, `mount_accessor`,
+  `category` (`agent|human`), UTC `observed_at`, independent `verification_ref`;
+  agent mappings include durable `definition_ref`.
+- Execution: unique `execution_ref`, `operation_ref`, `issuance_ref`, `trace_ref`,
+  `verification_ref`, UTC `occurred_at`, `result:"success"`, `mode` matching the scenario,
+  `namespace_id`, `mount_accessor`, and nullable `issuer`, `subject`, `agent_entity`,
+  `human_entity` according to mode. Distinct users are verified `(issuer,subject)` pairs.
+
+Expected scenario totals are 1, 1, 101 and 100 respectively for `agent-repeat`,
+`agent-only-users`, `agent-obo-users` and `direct-users`. Reused and incremental counts are
+separate. Cross-cluster/month/mount joins, changed mappings and repeated subjects cannot
+produce a passing hundred-user result. These measurements do not predict invoices.
+
+Record private reviews through `review --input PATH`. Common fields are `kind`, `subject_id`,
+exact `expected_digest`, `reviewer`, `role`, UTC `observed_at`, `decision`, private `rationale`,
+and 1–32 source UUID `attestations`. The command assigns review UUID and actual reviewed time.
+`supersedes` explicitly lists older review UUIDs; an unsuperseded conflict remains visible.
+One person can attest several roles through separate records; names do not authenticate identity.
+
+- `source-profile`: subject is profile UUID; digest is its content digest; the product owner reviews it.
+- `source`: subject is source UUID; digest is its seal; requires exact `extraction_digest` from inspect.
+- `attachment`: source UUID/seal plus `sanitized:true` for approval of exact bytes.
+- `criterion`: assessment UUID/seal plus exact `criterion`; approval requires original proof
+  and its accountable roles, with supporting source attestations.
+- `exception`: assessment UUID/seal, `criterion`, `decision:"agree_exception"`, and private
+  `alternative`. Customer and every relevant owner must agree to the same alternative.
+  Original criteria stay blocked/failed; integrity conflicts or unsafe cleanup cannot be waived.
+- `package`: core UUID/seal plus `witnessed:true` for approval. Reference a reviewed native
+  `witness` fact with matching core digest, meeting time and participant role. A label alone
+  cannot create a meeting or an approval.
+
+```sh
+uv run agent closeout review --dossier DOSSIER_UUID --revision N --input PRIVATE_REVIEW_PATH
+uv run agent closeout package --dossier DOSSIER_UUID --revision N --assessment ASSESSMENT_UUID
+uv run agent closeout handoff --dossier DOSSIER_UUID --revision N --package CORE_UUID
+uv run agent closeout report --dossier DOSSIER_UUID --package HANDOFF_UUID
+```
+
+The immutable core contains criteria, safe inventory/evidence summaries, counts, readout,
+reproduction/reset guides and explicitly sanitized supporting attachments. Role records stay
+outside its digest. Handoff seals a new copy with applicable signoffs, avoiding a circular hash.
+Changed criterion reviews require rebuilding a core; later role signoffs bind its unchanged digest.
+
+Full current acceptance requires all fifteen original criteria, four measured native scenarios,
+complete two-profile software evidence, accountable criterion decisions and five witnessed role
+approvals. Agreed deviations are `accepted_with_exceptions`; they never turn original rows into
+passes. Missing proof is `blocked`; otherwise missing approvals is `ready_for_review`;
+rejection/contradiction is `failed`. Historical decisions stay visible as historical.
+Mutation exit 0 means a local record was created. Report exits 0 only for current full acceptance,
+1 for failure/integrity/rejection, 2 for incomplete/historical/exception-qualified results.
+
+No new environment variables are needed. Native prerequisites remain concrete: Vault owner
+supplies entitled audit export or customer/vendor exception agreement; Verify owner repairs the
+phone denial path before an explicitly chosen fresh test; VIP owner supplies reviewed native
+events and control receipts; provider/agent owners supply genuine cohorts and an approved
+agent-only/direct execution surface. Follow `guide` for exact existing commands and rechecks.
+Do not automatically delete evidence when a quota is reached: the owner must archive the complete
+private installation according to its retention policy. New attempts use new UUIDs.

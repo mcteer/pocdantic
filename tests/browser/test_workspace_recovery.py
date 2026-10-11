@@ -2,6 +2,8 @@
 
 import argparse
 import asyncio
+import contextlib
+import io
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -76,16 +78,29 @@ def test_operator_closure_and_manual_new_submission(workspace_browser, authority
         return httpx.Response(204)
 
     with ThreadPoolExecutor(max_workers=1) as executor:
-        code = executor.submit(
-            lambda: asyncio.run(
-                execute_recovery(
-                    argparse.Namespace(recovery_command="revoke", incident_id=item.incident_id),
-                    settings=settings,
-                    project=store.project,
-                    transport=httpx.MockTransport(cleanup),
+
+        def revoke_when_idle():
+            """Retry only a pre-effect busy result from background browser reads, never cleanup."""
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                result = asyncio.run(
+                    execute_recovery(
+                        argparse.Namespace(recovery_command="revoke", incident_id=item.incident_id),
+                        settings=settings,
+                        project=store.project,
+                        transport=httpx.MockTransport(cleanup),
+                    )
                 )
-            )
-        ).result(timeout=5)
+            if (
+                result == 2
+                and not calls
+                and json.loads(output.getvalue()).get("reason_code") == "recovery_busy"
+            ):
+                raise RecoveryError("recovery_busy")
+            print(output.getvalue(), end="")
+            return result
+
+        code = executor.submit(lambda: journal_operation(revoke_when_idle)).result(timeout=5)
     assert code == 0
     page.get_by_role("button", name="Check recovery", exact=True).click()
     expect(page.locator("#operations-status")).to_contain_text("clear")

@@ -72,3 +72,6 @@ exact enrollment and independent identity/permission proofs through `agent gover
 
 Contributors can list, run, and inspect the synthetic security regression matrix with
 `uv run python scripts/run_security_regression.py run`; see [contributor checks](CONTRIBUTING.md#security-regression-checks).
+
+Use `agent closeout` to guide demonstrations, assess private evidence, reconcile client counts,
+and prepare a reviewed handoff. It runs locally; see the [closeout workflow](docs/usage.md#poc-closeout).
