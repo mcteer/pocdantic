@@ -358,3 +358,10 @@ def demonstrated(settings, project, observations, deadline):
     except Exception:
         pass  # Evidence remains unverified; raw source errors never become instructions.
     return observations
+
+
+def sandbox_support():
+    """Optional analysis availability never changes the baseline readiness result."""
+    from agent.sandbox import INSTALL, available
+
+    return {"available": available(), "next_action": INSTALL}

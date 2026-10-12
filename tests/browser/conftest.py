@@ -39,6 +39,20 @@ def workspace_browser(workspace_settings, identity_provider, request, monkeypatc
         returns = sum(
             isinstance(part, ToolReturnPart) for message in messages for part in message.parts
         )
+        if mode == "sandbox" and returns == 0:
+            return ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        "run_python",
+                        {
+                            "code": (
+                                'r = await query_database("SELECT COUNT(*) FROM poc_records", [])\n'
+                                'r["rows"][0]["count"] * 2'
+                            )
+                        },
+                    )
+                ]
+            )
         if returns < options.get("reads", 1):
             return ModelResponse(
                 parts=[
@@ -65,9 +79,18 @@ def workspace_browser(workspace_settings, identity_provider, request, monkeypatc
         return [{"id": 1, "status": "healthy"}]
 
     monkeypatch.setattr("agent.broker.read_postgres", read)
+
+    async def admitted_read(lease, **kwargs):
+        """Synthetic SQL result after actual broker credential/cleanup transitions."""
+        counts["read"] += 1
+        if options.get("read_delay"):
+            await asyncio.sleep(options["read_delay"])
+        return {"rows": [{"count": 4}], "row_count": 1, "truncated": False}
+
+    monkeypatch.setattr("agent.vault.read_admitted_postgres", admitted_read)
     config = workspace_settings.model_copy(
         update={
-            "timeout_seconds": options.get("timeout", 1),
+            "timeout_seconds": options.get("timeout", 10 if mode == "sandbox" else 1),
             "vault_addr": "https://vault.example",
             "vault_audience": "vault",
             "database_host": "db.example",

@@ -60,7 +60,7 @@ class AgentDefinition(StrictModel):
     id: str = Field(pattern=r"^[a-z][a-z0-9-]{1,63}$")
     instructions: str
     capabilities: tuple[str, ...]
-    policy_role: Literal["parent", "ticket-reader"] = "ticket-reader"
+    policy_role: Literal["parent", "ticket-reader", "database-analyst"] = "ticket-reader"
 
 
 class WriteResult(StrictModel):

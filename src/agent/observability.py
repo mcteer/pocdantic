@@ -95,6 +95,7 @@ PHASES = {
     "cleanup": "cleanup",
     "telemetry": "telemetry",
     "report": "report",
+    "sandbox": "sandbox",
 }
 DETAILS = frozenset(
     (

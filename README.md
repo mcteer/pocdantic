@@ -53,6 +53,10 @@ See [browser setup](docs/usage.md#browser-workspace) for instructions.
 Use **Check connection** for diagnostics and **Check recovery** after operator repair.
 Live database access first requires [prospective recovery enrollment](docs/usage.md#durable-recovery).
 
+For generated database analysis, install the `sandbox` extra and select `database-analyst`.
+Run `uv run agent sandbox demo` to see real Monty computation and blocked remote-command
+attempts with synthetic data. See [Monty setup](docs/setup.md#monty-database-query-agent).
+
 ## Development and evidence
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for tests and review requirements, and

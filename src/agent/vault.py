@@ -497,3 +497,52 @@ async def read_postgres(
                 return await cur.fetchall()
     except psycopg.Error:
         raise SecurityError("database_request_failed") from None
+
+
+async def read_admitted_postgres(
+    lease, *, plan, host, port, database, sslrootcert=None, username_suffix="", observed=None
+):
+    """Run compiler output under SELECT-only credentials and bounded read-only SQL.
+
+    The original generated string is unavailable here. Validate driver result names,
+    built-in types and payload bounds before releasing any rows from trusted custody.
+    """
+    import psycopg
+    from psycopg.rows import dict_row
+
+    from .sandbox.models import result_rows
+    from .sandbox.sql import compile_plan
+
+    sql, values = compile_plan(plan)
+    try:
+        async with await psycopg.AsyncConnection.connect(
+            host=host,
+            port=port,
+            dbname=database,
+            user=lease.username.get_secret_value() + username_suffix,
+            password=lease.password.get_secret_value(),
+            sslmode="verify-full",
+            connect_timeout=5,
+            row_factory=dict_row,
+            options="-c statement_timeout=5000 -c lock_timeout=1000 "
+            "-c default_transaction_read_only=on -c search_path=pg_catalog",
+            **({"sslrootcert": sslrootcert} if sslrootcert else {}),
+        ) as conn:
+            async with conn.cursor() as cur:
+                if observed:
+                    observed()
+                await cur.execute(sql, values)
+                expected = (
+                    plan.columns
+                    if plan.kind == "rows"
+                    else (("count",) if plan.kind == "count" else ("status", "count"))
+                )
+                if cur.description is None or tuple(c.name for c in cur.description) != expected:
+                    raise SecurityError("sandbox_result_invalid")
+                for column in cur.description:
+                    allowed = (25,) if column.name == "status" else (20, 21, 23)
+                    if column.type_code not in allowed:
+                        raise SecurityError("sandbox_result_invalid")
+                return result_rows(await cur.fetchall(), plan)
+    except psycopg.Error:
+        raise SecurityError("database_request_failed") from None

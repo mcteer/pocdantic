@@ -21,6 +21,7 @@ from agent.cli import selected_model
 from agent.runtime import Runtime
 from agent.security import SecurityError
 from agent.settings import Settings
+from agent.setup.readiness import sandbox_support
 from agent.telemetry import configure_telemetry
 from agent.workspace.auth import WorkspaceAuth
 from agent.workspace.models import (
@@ -72,6 +73,7 @@ def create_workspace_app(
     Tests may inject models and transports. Production credentials remain in the
     server; shutdown drains session work before discarding secrets.
     """
+
     config = settings or Settings()
     if not isinstance(port, int) or not 1024 <= port <= 65535:
         raise SecurityError("invalid_request")
@@ -295,6 +297,12 @@ def create_workspace_app(
             requires_sign_in=not signed,
             csrf_token=current.csrf,
             profiles=list(runtime.definitions),
+            unavailable_profiles={
+                name: sandbox_support()["next_action"]
+                for name, definition in runtime.definitions.items()
+                if "sandbox-python" in definition.capabilities
+                and not sandbox_support()["available"]
+            },
             configuration_issues=issues,
             login_error=WorkflowError.of(code) if code else None,
         )
@@ -500,6 +508,29 @@ def create_workspace_app(
         return app.state.manager.project_job(app.state.manager.get(session, identifier)).model_dump(
             mode="json"
         )
+
+    @app.get("/workspace/runs/{job_id}/sandbox")
+    async def sandbox_inspection(request: Request, job_id: str):
+        """Return bounded raw execution only to the owning signed-in session, without caching."""
+        session = context(request, signed=True)
+        try:
+            identifier = UUID(job_id)
+        except ValueError:
+            raise SecurityError("run_not_found") from None
+        job = app.state.manager.get(session, identifier)
+        if job.request.profile != "database-analyst":
+            return JSONResponse(
+                {"error_code": "run_not_found"},
+                status_code=404,
+                headers={"Cache-Control": "no-store"},
+            )
+        if job.sandbox_view is None:
+            return JSONResponse(
+                {"error_code": "inspection_unavailable"},
+                status_code=410,
+                headers={"Cache-Control": "no-store"},
+            )
+        return JSONResponse(job.sandbox_view, headers={"Cache-Control": "no-store"})
 
     @app.post("/workspace/runs/{job_id}/retry")
     async def retry(request: Request, job_id: str):
