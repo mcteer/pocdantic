@@ -50,6 +50,7 @@ SAFE_NAMES = frozenset(
         "cleanup",
         "telemetry",
         "report",
+        "sandbox",
         "response",
         "governance",
         "agent",

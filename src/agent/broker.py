@@ -1,6 +1,7 @@
 """Trusted database flow with explicit user-JWT and delegated-exchange routes.
 
-The model supplies only a bounded record ID. This adapter verifies the selected route's identities,
+The fixed reader takes a bounded record ID; sandbox analysis supplies a closed admitted
+read plan. This adapter verifies the selected route's identities,
 requests scoped Vault credentials, runs fixed SQL, and arranges cleanup. User-JWT mode
 verifies the human, logs in to a constrained Vault role and tracks a native token plus lease.
 Delegated mode additionally verifies the workload actor and exact authorization details.
@@ -15,7 +16,7 @@ import json
 import re
 from collections.abc import Callable
 from contextlib import AsyncExitStack, nullcontext
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import partial
 from uuid import uuid4
 
@@ -68,6 +69,8 @@ class DatabaseBroker:
 
     run_guard: object = field(default=None, repr=False)
 
+    read_plan: object = field(default=None, repr=False)
+
     http: httpx.AsyncClient | None = field(default=None, repr=False)
 
     def __post_init__(self):
@@ -96,6 +99,36 @@ class DatabaseBroker:
         }
         if self.operation_observer and stage in typed:
             self.operation_observer.record(*typed[stage])
+
+    async def query(self, plan):
+        """Execute only an independently revalidated closed plan through normal custody."""
+        from .sandbox.models import ReadPlan
+
+        checked = ReadPlan.model_validate_json(plan.model_dump_json())
+        return await replace(self, read_plan=checked)(1)
+
+    async def _rows(self, lease, record_id):
+        """Select a trusted executor; no caller can supply a connection or arbitrary SQL."""
+        s = self.settings
+        options = dict(
+            host=s.database_host,
+            port=s.database_port,
+            database=s.database_name,
+            sslrootcert=s.database_sslrootcert,
+            username_suffix=s.database_username_suffix,
+        )
+        if self.read_plan is not None:
+            from .vault import read_admitted_postgres
+
+            return await read_admitted_postgres(
+                lease, plan=self.read_plan, observed=self._query_observed, **options
+            )
+        return await read_postgres(lease, record_id=record_id, **options)
+
+    def _query_observed(self):
+        """Record a driver dispatch attempt as metadata, without SQL or parameter values."""
+        if self.operation_observer:
+            self.operation_observer.fact("sandbox_sql_attempt")
 
     async def __call__(self, record_id: int) -> list[dict]:
         """Read one record through verified delegation, rejecting incomplete configuration."""
@@ -286,15 +319,7 @@ class DatabaseBroker:
                 if operation_observer:
                     operation_observer.record("database", "attempted", operation_ref=uuid4())
                 self.run_guard.check()
-                rows = await read_postgres(
-                    lease,
-                    host=s.database_host,
-                    port=s.database_port,
-                    database=s.database_name,
-                    record_id=record_id,
-                    sslrootcert=s.database_sslrootcert,
-                    username_suffix=s.database_username_suffix,
-                )
+                rows = await self._rows(lease, record_id)
                 self.observe("database_read_completed")
                 return rows
 
@@ -396,14 +421,6 @@ class DatabaseBroker:
                     ) as lease:
                         self.observe("lease_acquired")
                         self.run_guard.check()
-                        rows = await read_postgres(
-                            lease,
-                            host=s.database_host,
-                            port=s.database_port,
-                            database=s.database_name,
-                            record_id=record_id,
-                            sslrootcert=s.database_sslrootcert,
-                            username_suffix=s.database_username_suffix,
-                        )
+                        rows = await self._rows(lease, record_id)
                         self.observe("database_read_completed")
                         return rows

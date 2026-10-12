@@ -170,6 +170,9 @@ def main() -> None:
     run.add_argument("--profile", default="parent")
     batch = sub.add_parser("batch")
     batch.add_argument("--input", required=True)
+    from .sandbox.commands import add_sandbox_parser
+
+    add_sandbox_parser(sub)
     from .setup.commands import add_setup_parser
 
     add_setup_parser(sub)
@@ -190,6 +193,10 @@ def main() -> None:
     add_closeout_parser(sub)
     args = parser.parse_args()
     try:
+        if args.command == "sandbox":
+            from .sandbox.commands import execute_sandbox
+
+            raise SystemExit(asyncio.run(execute_sandbox(args)))
         if args.command == "setup":
             from .setup.commands import execute_setup
 

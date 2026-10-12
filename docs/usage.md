@@ -966,3 +966,53 @@ observations without issuing credentials. Follow the [colleague guide](setup.md)
 provider preparation, baseline/advanced separation, live allow/deny checks and recovery.
 The browser lists configured/unverified capabilities; unsupported or unverified advanced
 features never grant authority or force a baseline downgrade.
+
+## Monty query contract
+
+Install the `sandbox` extra and choose `database-analyst` in the browser, or use the existing
+CLI with `--profile database-analyst`. CLI live work requires its private signed user token
+and existing configuration/enrollment. The browser supplies that token through sign-in.
+The model has one `run_python(code)` tool; its Python can call
+`await query_database(sql, parameters)` and calculate over `{rows, row_count, truncated}`.
+
+The query language accepts one SELECT against `poc_records` or `public.poc_records`:
+
+```sql
+SELECT id, status FROM poc_records WHERE id > $1 ORDER BY id LIMIT 10
+SELECT COUNT(*) FROM poc_records
+SELECT status, COUNT(*) FROM poc_records GROUP BY status
+```
+
+The first query takes an integer parameter list such as `[2]`; data values are never
+interpolated. Only ID/status projections, COUNT(*), status grouping, up to eight AND
+comparisons, two output-column ordering terms and LIMIT 1–100 are admitted. ID supports
+numeric comparisons; status supports equality/inequality. Every supplied parameter must
+be referenced by a contiguous numbered `$1`, `$2`, ... index. No aliases, comments, quoted
+identifiers, joins, subqueries, CTEs, casts, other functions, locks or additional statements.
+An optional final semicolon is allowed. The trusted adapter compiles a fresh query from
+a closed plan with fixed identifiers and separate parameters; it never executes source SQL.
+
+Generated source is capped at 16 KiB, SQL at 8 KiB, parameters at 32 strict integer/text
+values and 16 KiB per request. Query results are capped at 100 rows/64 KiB, status cells
+at 4 KiB, and combined program output/printing at 16 KiB. A result cut off by the row limit
+has `truncated=true`; do not infer complete population percentages from it. The database
+connection verifies TLS and uses a read-only transaction, fixed search path, 5-second
+connection/statement and 1-second lock limits, plus SELECT-only credentials.
+
+One feed runs in a fresh local Monty worker. Files, environment, sockets, process launch,
+general imports and credentials are unavailable. The single host callback is separately
+authorized and owns Vault/database cleanup. Caught callback errors latch failure and cannot
+be used to make later queries. Sign-out or cancellation stops admission, discards the worker
+and drains the owned database operation. Worker death alone does not establish revocation.
+
+`uv run agent sandbox demo` emits a metadata-only catalog result. Synthetic database effects
+and actual sandbox execution are labelled separately. It includes successful filtering,
+grouping and percentages, remote-command attempts, unsupported SQL, limits and partial effects.
+Exit 0 means all assertions pass; 1 means failure, 2 names a missing optional dependency,
+and 130 means interruption after drain. There is no arbitrary-code CLI flag.
+
+**Show execution** reads bounded source only for its owning authenticated session, with no
+caching. At most ten terminal inspections are retained; old inspections can become unavailable.
+Code is rendered as inert text and purged on sign-out/expiry. It is not exported as native
+provider evidence. These demonstrations do not change the original fifteen acceptance criteria
+or four-case closeout requirements. Follow [setup](setup.md#monty-database-query-agent) for prompts.

@@ -71,9 +71,16 @@ class Policy:
             )
         elif action.operation == "database.read":
             allowed = (
-                agent == "parent"
+                agent in {"parent", "database-analyst"}
                 and "database:read" in principal.scopes
                 and action.resource in self.database_resources
+            )
+        elif action.operation == "sandbox.execute":
+            allowed = (
+                agent == "database-analyst"
+                and "database:read" in principal.scopes
+                and action.resource == "database-analysis"
+                and not action.parameters
             )
         if not allowed:
             raise SecurityError("policy_denied")

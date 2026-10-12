@@ -138,6 +138,19 @@ def implementation_revision():
         "telemetry.py",
     ]
     names += [
+        "sandbox/" + n + ".py"
+        for n in (
+            "__init__",
+            "models",
+            "sql",
+            "sql_worker",
+            "runner",
+            "capability",
+            "demo",
+            "commands",
+        )
+    ]
+    names += [
         "validation/" + n + ".py"
         for n in (
             "models",
@@ -327,6 +340,7 @@ class LifecycleEvent(Contract):
         "cleanup",
         "telemetry",
         "report",
+        "sandbox",
     ]
     detail: Literal[
         "started",

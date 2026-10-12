@@ -47,6 +47,8 @@ class Job:
     effect_owner: object = None
     incidents: set = field(default_factory=set)
     current_incident: object = None
+    sandbox_view: object = None
+    sql_attempts: int = 0
 
 
 class MemorySink:
@@ -82,7 +84,9 @@ class MemorySink:
         Preserve uncertainty and exact-action retry candidates for the manager’s checks.
         """
         job = self.job
-        if name == "recovery_incident":
+        if name == "sandbox_sql_attempt":
+            job.sql_attempts += 1
+        elif name == "recovery_incident":
             job.current_incident = private["incident_id"]
             job.incidents.add(private["incident_id"])
             self.manager.recovery_incidents.add(private["incident_id"])
@@ -422,7 +426,9 @@ class RunsManager:
                 code = "approval_denied"
             elif (
                 result.status == "completed"
-                and "database-read" in runtime.definitions[job.request.profile].capabilities
+                and {"database-read", "sandbox-python"}.intersection(
+                    runtime.definitions[job.request.profile].capabilities
+                )
                 and not job.reads
             ):
                 job.view.state = "failed"
@@ -447,6 +453,20 @@ class RunsManager:
             job.view.state = "failed"
             job.view.error = WorkflowError.of("task_failed")
         finally:
+            execution = runtime.sandbox_runs.pop(job.context.run_id, None)
+            if execution is not None and job.session.state not in {"closing", "closed"}:
+                job.sandbox_view = execution.inspection() | {
+                    "credentials_acquired": job.acquired,
+                    "credentials_revoked": job.revoked,
+                    "sql_dispatch_attempts": job.sql_attempts,
+                    "database_reads_completed": job.reads,
+                    "cleanup_status": job.view.cleanup_status,
+                    "generation": "program_received" if execution.submitted else "not_exercised",
+                }
+                job.view.sandbox_available = True
+                retained = [j for j in job.session.jobs.values() if j.sandbox_view is not None]
+                for previous in retained[:-10]:
+                    previous.sandbox_view = None
             runtime.approvals.invalidate_run(job.context.run_id)
             if job.view.approval_status == "pending":
                 job.view.approval_status = "unconfirmed"

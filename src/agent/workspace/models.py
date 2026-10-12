@@ -16,6 +16,17 @@ from agent.response.models import PublicSummary
 from agent.schemas import StrictModel
 
 ERRORS = {
+    "sandbox_busy": ("request", "wait"),
+    "sandbox_unavailable": ("configuration", "configuration"),
+    "sandbox_not_exercised": ("model", "edit_task"),
+    "sandbox_query_denied": ("policy", "edit_task"),
+    "sandbox_execution_failed": ("runtime", "edit_task"),
+    "sandbox_memory_limit": ("runtime", "edit_task"),
+    "sandbox_compute_limit": ("runtime", "edit_task"),
+    "sandbox_wall_limit": ("runtime", "edit_task"),
+    "sandbox_output_limit": ("runtime", "edit_task"),
+    "sandbox_calls_limit": ("runtime", "edit_task"),
+    "sandbox_database_unavailable": ("database", "inspect_configuration"),
     "sign_in_required": ("identity", "sign_in"),
     "login_cancelled": ("identity", "sign_in"),
     "login_invalid": ("identity", "sign_in"),
@@ -116,11 +127,13 @@ class SessionView(Versioned):
     requires_sign_in: bool
     csrf_token: str
     profiles: list[str]
+    unavailable_profiles: dict[str, str] = Field(default_factory=dict)
     configuration_issues: list[str] = Field(default_factory=list)
     login_error: WorkflowError | None = None
 
 
 class JobView(Versioned):
+    sandbox_available: bool = False
     model_config = ConfigDict(frozen=False, validate_assignment=True)
     job_id: UUID
     request_id: UUID

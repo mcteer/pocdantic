@@ -247,3 +247,14 @@ provider/network/subprocess setup and use temporary private stores. The complete
 suite and two-profile security regression remain required. `agent closeout` is installed
 runtime code; it never imports or launches contributor scripts. Capture a separately completed
 regression run as software evidence. No new environment variables are needed.
+
+Optional sandbox code must use Monty with a single authorized query callback. Generated
+SQL lowers to a closed read plan and trusted parameterized compiler. Fixed-reader behavior
+stays unchanged. Document host-task ownership, cancellation and cleanup ordering.
+
+Run real-worker checks with `uv run pytest -q tests/test_sandbox_*.py`. The optional
+`uv run python scripts/sandbox_postgres_fixture.py` starts a disposable, loopback-only TLS
+PostgreSQL container, tests the compiler and restricted grants, then removes it. It uses
+no application database settings. CI runs that fixture plus macOS/Linux worker checks and
+a separate installation without sandbox dependencies. Monty worker exit cannot prove host
+callback or credential cleanup: keep explicit task ownership until every callback drains.

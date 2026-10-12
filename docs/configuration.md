@@ -339,3 +339,12 @@ and model/database settings; it needs no saved bearer or separate agent client.
 CLI live-portability uses private `BEARER_TOKEN` and `PORTABILITY_DENIED_TOKEN` inputs.
 Short names take precedence over supported legacy aliases. New fields follow the existing
 `POCDANTIC_` alias convention. Follow [setup and migration](setup.md) before changing routes.
+
+
+## Optional Monty analysis
+
+The `sandbox` extra pins Monty 1.1.0 (matching client/runtime) and SQLGlot 30.22.0.
+Both use the MIT license. Review their distributed notices when redistributing these
+dependencies; this does not choose a license for the project. No additional service,
+administrator token or model provider is required. `MONTY_BIN` and PATH overrides do
+not select the executable: the adapter verifies the locked runtime's installed worker.

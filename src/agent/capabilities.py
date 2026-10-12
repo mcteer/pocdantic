@@ -49,6 +49,7 @@ class Dependencies:
     database_reader: Callable[[int], Awaitable[list[dict]]] | None = field(default=None, repr=False)
 
     root_guard: object = field(default=None, repr=False)
+    sandbox_execution: object = field(default=None, repr=False)
 
     def check_containment(self) -> None:
         """Reject work blocked by run, parent-run, profile, or workload containment."""
@@ -314,9 +315,17 @@ def execute_simulated_write(deps: Dependencies, approval_id: UUID, action: Actio
     )
 
 
+def sandbox_python():
+    """Lazily construct the optional capability without importing its execution engine."""
+    from .sandbox.capability import sandbox_python as create
+
+    return create()
+
+
 CAPABILITY_FACTORIES = {
     "ticket-read": ticket_read,
     "delegate-tickets": delegate_tickets,
     "simulated-infrastructure": simulated_infrastructure,
     "database-read": database_read,
+    "sandbox-python": sandbox_python,
 }

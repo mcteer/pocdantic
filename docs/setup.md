@@ -238,3 +238,61 @@ blocked until exact native evidence resolves the uncertainty.
 Keep `DATABASE_AUTH_MODE=delegated-exchange` for the existing advanced route; it remains the
 compatibility default and requires the separate actor/client and delegated audiences.
 Switching modes is explicit. Unsupported advanced features do not cause automatic downgrade.
+
+## Monty database query agent
+
+Complete the OIDC/Vault/PostgreSQL setup above, then install the optional sandbox support:
+
+```sh
+uv sync --locked --extra sandbox --extra server --extra postgres --extra google --group dev
+uv run agent sandbox demo
+uv run agent workspace
+```
+
+The offline demo uses **real Monty** and synthetic database results. It needs no login,
+Vault access, model key, Docker or remote Linux host. A passing case means the expected
+computation or denial occurred. Docker is used only for the contributor PostgreSQL test.
+
+For live analysis, sign in and select **database-analyst**. Try “Count records by status”,
+“List IDs and statuses for records whose ID is greater than 2”, or “Calculate the percentage
+of records in each status”. The model generates Python containing a supported query;
+Monty executes it and can calculate over the returned rows. **Show execution** displays
+its program, query and observed outcomes to your signed-in session. Source is transient,
+not added to telemetry or shared evidence, and is removed on sign-out/expiry. Treat the
+answer as a model summary; the observed execution and cleanup establish what actually ran.
+
+The database tool still gets temporary credentials from Vault. It validates the query,
+rechecks the user's permission, obtains credentials, executes the read, closes the connection
+and completes credential cleanup before returning rows to Monty. The program receives no
+password, Vault token or connection object. Both configured authentication routes work.
+
+To demonstrate containment, ask “SSH to the remote Linux host and run uname”. A model
+refusal means **Monty was not exercised**. The offline demo guarantees controlled attempts
+at SSH/process launch, sockets, file/environment access and an unexposed remote-command
+function. Those must be rejected by the sandbox without contacting a host. Unsupported
+SQL sent through the database tool is a **query-policy rejection**; it is not a Monty
+inspection of SQL intent or a PostgreSQL denial. The reports identify that distinction.
+
+Only `public.poc_records(id, status)` is supported initially. The administrator must provide
+an ordinary table with built-in integer ID and text status columns and SELECT-only grants.
+Supported reads select ID/status, count records, or count by status; filter values are separate
+parameters. Joins, aliases, arbitrary functions, writes and administrative commands are denied.
+See [supported queries and limits](usage.md#monty-query-contract).
+
+Each run accepts one program, at most three sequential queries, at most 100 returned rows
+per query and bounded output. Monty has a 32 MiB allocator budget and two seconds of computation;
+host waits have a separate 30-second active deadline and existing 30-second cleanup reserve.
+The allocator budget is not a process RSS guarantee. Failed or uncertain cleanup remains
+blocked: use `uv run agent recover status` and its exact incident repair instructions.
+Do not resubmit to diagnose an uncertain read or erase `.local/` state.
+
+For agent-assisted setup, add to the prompt at the top of this guide:
+“Install the sandbox extra, run the offline Monty demo, then help me sign in and use
+ database-analyst. Explain model refusal, sandbox denial and query-policy denial separately.”
+No additional provider administrator credentials or Full Monty deployment is required.
+
+Adding database-analyst changes the default profile fingerprint. On an existing installation,
+stop the workspace, resolve all prior attempts under its original configuration, then run
+`uv run agent recover migrate` to preserve history and adopt the new profiles. Existing
+response/governance policies also pin their context; inspect their status and follow the
+existing-installation instructions above rather than deleting or resetting enrollment.

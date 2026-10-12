@@ -222,6 +222,7 @@ def provider_network_boundary(request, monkeypatch):
             "test_governance_",
             "test_security_regression_",
             "test_portable_",
+            "test_sandbox_",
             "test_setup_",
             "test_workspace_portability",
         )
@@ -267,7 +268,7 @@ from closeout_support import closeout_project  # noqa: F401, E402
 def portable_configuration_isolation(request, monkeypatch):
     """Portable fixtures never inherit a developer's private file or exported credentials."""
     if not request.node.path.name.startswith(
-        ("test_portable_", "test_setup_", "test_workspace_portability")
+        ("test_portable_", "test_sandbox_", "test_setup_", "test_workspace_portability")
     ):
         return
     import os

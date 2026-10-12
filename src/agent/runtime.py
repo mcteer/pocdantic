@@ -20,7 +20,7 @@ from pydantic_ai.usage import UsageLimits
 from .approval import ApprovalStore
 from .capabilities import CAPABILITY_FACTORIES, ContainmentCapability, Dependencies
 from .observability import BoundObserver, NullSink
-from .schemas import AgentDefinition, AgentOutput, AgentResponse, Principal, RequestEnvelope
+from .schemas import Action, AgentDefinition, AgentOutput, AgentResponse, Principal, RequestEnvelope
 from .security import Audit, Containment, Policy, SecurityError
 from .settings import Settings
 from .telemetry import Telemetry, safe_instrumentation
@@ -39,6 +39,12 @@ def load_definitions(path: str) -> dict[str, AgentDefinition]:
     if len({x.id for x in definitions}) != len(definitions):
         raise SecurityError("profile_duplicate")
     for item in definitions:
+        if ("sandbox-python" in item.capabilities or item.policy_role == "database-analyst") and (
+            item.id != "database-analyst"
+            or item.policy_role != "database-analyst"
+            or item.capabilities != ("sandbox-python",)
+        ):
+            raise SecurityError("analysis_profile_invalid")
         if not item.capabilities or any(x not in CAPABILITY_FACTORIES for x in item.capabilities):
             raise SecurityError("capability_unknown")
         if item.policy_role == "ticket-reader" and item.capabilities != ("ticket-read",):
@@ -65,7 +71,7 @@ def build_agent(
         name=definition.id,
         instructions=definition.instructions,
         retries=1,
-        tool_timeout=10,
+        tool_timeout=65 if "sandbox-python" in definition.capabilities else 10,
         model_settings={"max_tokens": 1000},
         capabilities=[
             *(CAPABILITY_FACTORIES[name]() for name in definition.capabilities),
@@ -120,6 +126,7 @@ class Runtime:
         self.approvals = ApprovalStore()
         self.database_reader = database_reader
         self.approval_backend = approval_backend
+        self.sandbox_runs: dict = {}
         self._active: dict = {}
         self._reserved: dict[UUID, RunContext] = {}
 
@@ -262,6 +269,29 @@ class Runtime:
             if isinstance(selected_reader, DatabaseBroker):
                 selected_reader = replace(selected_reader, run_guard=root_guard)
                 deps = replace(deps, database_reader=selected_reader)
+            if "sandbox-python" in self.definitions[request.profile].capabilities:
+                from .sandbox import available
+                from .sandbox.runner import SandboxExecution
+
+                if not available():
+                    raise SecurityError("sandbox_unavailable")
+
+                async def query(plan):
+                    """Authorize each query separately before the broker verifies ingress again."""
+                    deps.authorize(Action(operation="database.read", resource="poc-records"))
+                    if selected_reader is None or not hasattr(selected_reader, "query"):
+                        raise SecurityError("sandbox_database_unavailable")
+                    return await selected_reader.query(plan)
+
+                execution = SandboxExecution(
+                    query,
+                    deps.check_containment,
+                    active_seconds=min(30, self.settings.timeout_seconds),
+                )
+                deps = replace(deps, sandbox_execution=execution)
+                self.sandbox_runs[run_id] = execution
+                while len(self.sandbox_runs) > 10:
+                    self.sandbox_runs.pop(next(iter(self.sandbox_runs)))
             deps.check_containment()
             deps.record("identity", "verified")
             deps.record("run", "started")
@@ -294,6 +324,14 @@ class Runtime:
             if message_history is not None:
                 if result is not None:
                     message_history[:] = result.all_messages()
+            if deps.sandbox_execution is not None:
+                execution = deps.sandbox_execution
+                if execution.failure:
+                    raise SecurityError(execution.failure)
+                if not execution.completed or not execution.reads:
+                    execution.failure = "sandbox_not_exercised"
+                    execution.observe("model", "denied", "sandbox_not_exercised")
+                    raise SecurityError("sandbox_not_exercised")
             deps.record("run", "completed")
             if observer.failed:
                 return AgentResponse(**common, status="failed", error_code="storage_error")
@@ -305,8 +343,11 @@ class Runtime:
                 else AgentOutput(summary="Completed simulated restart"),
             )
         except SecurityError as error:
-            deps.record("run", "denied")
-            return AgentResponse(**common, status="denied", error_code=str(error))
+            partial = deps.sandbox_execution is not None and deps.sandbox_execution.admitted > 0
+            deps.record("run", "failed" if partial else "denied")
+            return AgentResponse(
+                **common, status="failed" if partial else "denied", error_code=str(error)
+            )
         except asyncio.CancelledError:
             try:
                 deps.check_containment()
@@ -319,6 +360,8 @@ class Runtime:
             deps.record("run", "failed")
             return AgentResponse(**common, status="failed", error_code="agent_run_failed")
         finally:
+            if deps.sandbox_execution is not None:
+                await deps.sandbox_execution.drain()
             self.approvals.invalidate_run(run_id)
             self._active.pop(run_id, None)
             if guard_context is not None and root_guard is not None:

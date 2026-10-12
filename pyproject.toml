@@ -21,6 +21,7 @@ anthropic = ["pydantic-ai-slim[anthropic]==2.55.0"]
 logfire = ["pydantic-ai-slim[logfire]==2.55.0"]
 server = ["fastapi>=0.143,<1", "uvicorn>=0.54,<1"]
 postgres = ["psycopg[binary]>=3.2,<4"]
+sandbox = ["pydantic-monty==1.1.0", "sqlglot==30.22.0"]
 
 [dependency-groups]
 browser = [

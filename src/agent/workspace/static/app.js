@@ -13,6 +13,16 @@ const messages = {
   identity_unavailable: 'Identity service unavailable. Try Sign in later.',
   token_lifetime_short: 'Increase provider token lifetime or reduce TIMEOUT_SECONDS, then sign in.',
   configuration_missing: 'Configure the missing setting or install the required extra.',
+  sandbox_busy: 'Another sandbox run is still executing or cleaning up. Wait for it to finish.',
+  sandbox_not_exercised: 'No sandbox execution occurred. The model may have declined the request.',
+  sandbox_query_denied: 'The query tool rejected unsupported SQL before credential acquisition.',
+  sandbox_execution_failed: 'Monty rejected or failed the generated program. Inspect execution for the boundary.',
+  sandbox_unavailable: 'Install the sandbox extra using the setup guide.',
+  sandbox_calls_limit: 'The program exceeded its sequential query-call limit.',
+  sandbox_output_limit: 'The program exceeded its output limit.',
+  sandbox_memory_limit: 'Monty stopped the program at its memory limit.',
+  sandbox_compute_limit: 'Monty stopped the program at its computation-time limit.',
+  sandbox_wall_limit: 'The analysis reached its execution deadline.',
   invalid_request: 'Check the task and selected profile.',
   request_forbidden: 'Open the printed local workspace URL and reload.',
   submission_conflict: 'Use a new submission for changed task text.',
@@ -96,12 +106,20 @@ async function loadSession() {
   // Remove owned provider details when logout, expiry or suspension closes the session.
   if (!session.signed_in) {
     $('provider-controls').replaceChildren();
+    $('execution').textContent = '';
+    $('execution').hidden = true;
+    $('show-execution').hidden = true;
     clearGovernance();
   }
   $('profile').replaceChildren(...session.profiles.map(profile => {
     const option = document.createElement('option');
     option.value = profile;
     option.textContent = profile;
+    if (session.unavailable_profiles?.[profile]) {
+      option.disabled = true;
+      option.textContent += ' (install sandbox extra)';
+      option.title = session.unavailable_profiles[profile];
+    }
     return option;
   }));
   $('issues').textContent = session.configuration_issues.length ?
@@ -158,6 +176,11 @@ function controls(busy) {
 /** Display one public job view using textContent so task/model output cannot inject HTML.
  * Retry availability is decided by trusted server checks, not inferred from UI labels. */
 function render(job) {
+  if (currentId !== job.job_id) {
+    $('execution').textContent = '';
+    $('execution').hidden = true;
+  }
+  $('show-execution').hidden = !job.sandbox_available;
   currentId = job.job_id;
   const labels = {
     accepted: 'Accepted', running: 'Running', waiting_for_approval: 'Waiting for your phone decision',
@@ -286,6 +309,9 @@ $('logout').addEventListener('click', async () => {
     pending = null;
     pendingRetry = null;
     currentId = null;
+    $('execution').textContent = '';
+    $('execution').hidden = true;
+    $('show-execution').hidden = true;
     latestJobs = [];
     knownBusy = false;
     $('task').value = '';
@@ -441,3 +467,27 @@ $('check-recovery').addEventListener('click', async () => {
 // Bootstrap cookie/CSRF before enabling any control; subsequent polling is read-only.
 loadSession().then(poll).catch(showError);
 pollLoop();
+
+/** Read only the selected job's owner-scoped inspection; treat all generated text as inert. */
+$('show-execution').addEventListener('click', async () => {
+  const jobId = currentId;
+  try {
+    const view = await api('/workspace/runs/' + jobId + '/sandbox');
+    if (currentId !== jobId || !session?.signed_in) return;
+    const stages = (view.observations || []).map(stage =>
+      stage.boundary + ': ' + stage.outcome + (stage.reason ? ' (' + stage.reason + ')' : '')
+    ).join('\n');
+    $('execution').textContent = 'Generation: ' + (view.generation || 'controlled program') +
+      '\nSandbox: ' + view.engine + '\nCompleted reads: ' + view.reads +
+      '\nCredential cleanup: ' + (view.cleanup_status || 'not applicable') +
+      '\nCredentials acquired/revoked: ' + (view.credentials_acquired || 0) + '/' +
+      (view.credentials_revoked || 0) + '\n\nGenerated Python:\n' + view.code +
+      '\n\nProposed SQL:\n' + (view.queries || []).join('\n') +
+      '\n\nObserved stages:\n' + stages;
+    $('execution').hidden = false;
+  } catch {
+    if (currentId !== jobId || !session?.signed_in) return;
+    $('execution').textContent = 'Execution inspection is unavailable. Select a completed analysis task.';
+    $('execution').hidden = false;
+  }
+});

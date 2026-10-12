@@ -231,6 +231,8 @@ def publishable(name: str) -> bool:
     p = PurePosixPath(name)
     if generated_private(name):
         return False
+    if name == ".dockerignore":
+        return True
     if name in ROOT_FILES:
         return True
     if name.startswith("specs/"):

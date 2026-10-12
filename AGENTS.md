@@ -92,7 +92,9 @@ for Python and appropriate function/module comments for JavaScript and scripts.
 - Preserve execution bounds, exact-action approvals, cancellation containment, and cleanup.
   Uncertain issuance or cleanup must not be reported as success. Do not replay effects to
   diagnose failures or bypass blocks by clearing local state.
-- Use fixed parameterized SQL and least-privilege grants. Ordinary tests must not call live
+- Use fixed parameterized SQL and least-privilege grants. The optional database-analyst
+  profile may propose SELECT queries only through the closed sandbox admission/compiler;
+  never execute its original SQL or expose credentials to generated code. Ordinary tests must not call live
   providers, send phone prompts, provision services, or change remote configuration.
 - Synthetic tests prove application behavior. Vendor acceptance requires live source
   evidence and explicit review; record unsupported or unavailable checks as blocked.
@@ -135,3 +137,17 @@ PRs need a concise problem/result summary, validation, compatibility impacts, an
 live limitations. Follow the constitution's maintainer-review and branch-protection rules;
 green CI alone does not authorize merging. Push, merge, publish, or change provider state
 only within the user's requested scope.
+
+## Help demonstrate Monty
+
+For sandboxed database analysis, follow [the Monty setup section](docs/setup.md#monty-database-query-agent)
+and [query contract](docs/usage.md#monty-query-contract). Install the optional sandbox extra,
+run `uv run agent sandbox demo`, then start the workspace and select `database-analyst`.
+A live model-generated query uses the existing OIDC/Vault/PostgreSQL baseline and enrollment.
+Do not give the program a database connection, Vault client, token, file mount, network or SSH tool.
+
+Explain the remote-Linux-command scenario precisely: model refusal does not test Monty;
+actual prohibited code execution does. Use the fixed offline probes to demonstrate sandbox
+rejection, and distinguish it from the query tool rejecting SQL before credential acquisition.
+Use the recorded stages and cleanup counts, not the model's narrative, to report success.
+Missing optional packages require the documented install; never fall back to exec/eval/CPython.
