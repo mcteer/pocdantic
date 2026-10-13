@@ -10,6 +10,9 @@ unrelated work. Read [CONTRIBUTING.md](CONTRIBUTING.md) and the
 - `src/agent/response/`: durable incident intake, root guards, exact cleanup and local release.
 - `src/agent/recovery/`: private acquisition ownership, migration and operator repair.
 - `src/agent/workspace/`: local browser workspace; static assets use plain JavaScript and CSS.
+- `src/agent/setup/`: fixed recipes, prerequisite checks and read-only state guidance.
+- `src/agent/model_config.py` and `src/agent/project.py`: trusted provider-key loading
+  and root admission.
 - `src/agent/validation/`: deterministic scenarios, private evidence, readiness, and closeout.
 - `tests/`: unit and integration checks; `tests/browser/` uses Playwright with WebKit.
 - `config/`: sanitized profiles and schemas; tenant settings belong in local configuration.
@@ -32,8 +35,9 @@ read; it does not authorize source edits or remote provider policy/grant changes
 Select `offline` for rehearsal, `workspace-analysis` for Monty/query work, otherwise
 `workspace-read`. Establish the canonical deployment root first: stateful CLI commands refuse
 nested Git directories, linked roots and unavailable Git discovery. Installed use outside Git
-uses cwd. Preserve `.env.local`, `.local/`, the existing route and policy drafts. Separate
-checkouts/worktrees are separate deployments; never copy enrollment or erase holds.
+uses cwd; stateful commands still require Git for root discovery. Preserve `.env.local`,
+`.local/`, the existing route and policy drafts. Separate checkouts/worktrees are separate
+deployments; never copy enrollment or erase holds.
 
 Base inputs are process environment variables or owner-only `.env.local`; environment wins.
 Ask only for missing names and their administrator. Never request secrets in chat or dump values.
@@ -59,6 +63,8 @@ bearer/denied token nor a Vault/admin token or phone authenticator.
    for reads, replacing only `google` with `openai` or `anthropic` when selected; analysis adds
    `--extra sandbox`. Later syncs can remove omitted extras. Follow-up commands use
    `uv run --no-sync agent ...`. Run `agent demo`; analysis also runs `agent sandbox demo`.
+   For `offline`, run `agent setup guide --recipe offline` and `agent setup check --recipe offline`,
+   report the synthetic result and finish. Steps 2–6 apply only to live recipes.
 2. Create configuration with `agent setup init --mode user-jwt` only if absent and file input
    is desired. Existing exported inputs need no duplicate file. Run `agent setup guide --recipe
    workspace-read --format json` and `agent setup check --recipe workspace-read`, substituting
@@ -66,8 +72,9 @@ bearer/denied token nor a Vault/admin token or phone authenticator.
    enrollment, review or recovery; exit 0 means local prerequisites only. Unknown guided model
    integrations require integration-owner review. A nonzero exit does not authorize init.
 3. For authorized live setup, run `agent setup check --recipe workspace-read --network`:
-   public metadata/seal status and bounded TCP only. Follow available actions; `after-prerequisites` actions
-   require their prerequisites first. Only wholly absent recovery permits `agent recover init`.
+   public metadata/seal status and bounded TCP only. Follow available actions;
+   `after-prerequisites` actions require their prerequisites first. Only wholly absent recovery
+   permits `agent recover init`.
    Partial/busy/held/mismatched/damaged state needs status and documented repair, never reset.
 4. With valid recovery and wholly absent policy, run `agent respond init --prepare`. Present
    the actual draft choices: local-only intake, no sources, no remote control authority,
@@ -75,7 +82,8 @@ bearer/denied token nor a Vault/admin token or phone authenticator.
    only after actual explicit review of that unchanged policy; reuse already supplied review.
    Existing enrollment skips preparation/review/init. A template or setting is not approval.
 5. Recheck, then launch `agent workspace` with process/session ownership. Verify it responds and
-   return the actual listening loopback URL and registered callback printed by the process.
+   return the actual listening loopback URL and callback printed by the process; confirm the
+   callback matches the administrator-registered login application.
    Do not invent a running server or silently change a port/callback. Use Playwright/WebKit for
    authorized browser help: open the URL, choose Sign in, have the user authenticate, and continue
    after return to the workspace. Never request or export cookies/tokens.
@@ -98,7 +106,7 @@ The CI environment is reproduced with:
 
 ```sh
 uv sync --locked --extra server --extra logfire --extra postgres --extra sandbox --extra google --extra openai --extra anthropic --group dev --group browser
-uv run --group browser playwright install webkit
+uv run --no-sync playwright install webkit
 ```
 
 Behavior changes follow specification → clarification → plan/research/contracts →
@@ -150,18 +158,19 @@ coverage. Before delivery, run the applicable gates from `.github/workflows/ci.y
 
 ```sh
 python3 scripts/check_privacy.py --history
-uv run python scripts/check_gates.py --all-features
-uv run python scripts/check_gates.py --runtime-only
-uv run ruff check .
-uv run ruff format --check .
-uv run --group browser pytest -q
-uv run agent validate run
-uv run agent demo
+uv run --no-sync python scripts/check_gates.py --all-features
+uv run --no-sync python scripts/check_gates.py --runtime-only
+uv run --no-sync ruff check .
+uv run --no-sync ruff format --check .
+uv run --no-sync pytest -q
+uv run --no-sync agent validate run
+uv run --no-sync agent demo
 uv build
-uv run python scripts/check_distribution.py
+uv run --no-sync python scripts/check_distribution.py
 ```
 
-CI includes additional targeted repeatability and readiness/closeout checks; its workflow
+CI includes onboarding and locked artifact-install matrices, sandbox platform/container checks,
+and targeted repeatability and readiness/closeout checks; its workflow
 is the authoritative command list. Documentation-only work needs artifact, link, and
 privacy validation; rerun affected tests if a supporting gate changes.
 
@@ -182,7 +191,7 @@ only within the user's requested scope.
 
 For sandboxed database analysis, follow [the Monty setup section](docs/setup.md#monty-database-query-agent)
 and [query contract](docs/usage.md#monty-query-contract). Install the optional sandbox extra,
-run `uv run agent sandbox demo`, then start the workspace and select `database-analyst`.
+run `uv run --no-sync agent sandbox demo`, then start the workspace and select `database-analyst`.
 A live model-generated query uses the existing OIDC/Vault/PostgreSQL baseline and enrollment.
 Do not give the program a database connection, Vault client, token, file mount, network or SSH tool.
 

@@ -3,7 +3,8 @@
 **Feature**: `013-repeatable-poc-workflow` | **Date**: 2026-10-12 | **Spec**: [spec.md](spec.md)
 **Git branch during planning**: `main`; no implementation branch created or commits made.
 **Input**: Assessment and the user's explicit agent-bootstrap/AGENTS.md requirement.
-**Disposition**: Design and task handoff only. Wait for the user to change models and authorize implementation.
+**Current disposition**: Software implemented and merged in [PR #17](https://github.com/mcteer/pocdantic/pull/17). T030/T031 remain open; see [validation](validation.md).
+**Original planning disposition**: Design and task handoff only; implementation awaited authorization.
 
 ## Summary
 
@@ -90,7 +91,7 @@ CONTRIBUTING.md                   targeted onboarding/install validation command
 .github/workflows/ci.yml          onboarding/install matrix using existing gates
 ```
 
-Names marked new are planned, not present. Reuse existing tests and stores wherever possible.
+Locations marked new were planned at design time and are now implemented. Reuse existing tests and stores wherever possible.
 Do not edit a core store schema merely to make its state easier to display. If an existing status
 method cannot distinguish a necessary state, add a read-only bounded classifier and negative tests.
 
@@ -174,7 +175,7 @@ in a concrete handoff. No automatic live effect retries. Model implementation an
 separate tasks: a setup request never authorizes source edits, and this planning session does not
 start implementation. AGENTS.md must teach that distinction.
 
-## Phase 2 — Implementation sequence (not started)
+## Phase 2 — Implementation sequence (software completed; external checks pending)
 
 1. Review these contracts and capture regression tests for observed defects and compatibility.
 2. Build small shared descriptor/root/recipe primitives with strict, bounded models.

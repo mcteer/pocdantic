@@ -5,12 +5,13 @@ access, and exact-action approvals. Python code lives in `src/agent`.
 
 ## Get started
 
-Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/). Run from the canonical checkout
+root; installed use outside Git uses the chosen deployment directory.
 
 ```sh
-uv sync --locked --group dev
-uv run agent demo
-uv run agent validate run
+uv sync --locked --no-dev
+uv run --no-sync agent demo
+uv run --no-sync agent validate run
 ```
 
 The demo and nine validation scenarios use synthetic data and make no network calls.
@@ -28,17 +29,17 @@ For a repeatable OIDC/Vault browser PoC, start with the [colleague setup guide](
 It includes a configuration worksheet and a prompt for agent-assisted setup;
 [AGENTS.md](AGENTS.md#help-someone-set-up-the-poc) defines the coding-agent workflow.
 
-Copy [.env.example](.env.example) to `.env.local` and enable only the integrations
-you need. Offline runs need no environment variables. Defaults cover model selection,
-timeouts, limits, and agent profiles.
+For a fresh browser baseline, create private configuration with
+`uv run --no-sync agent setup init --mode user-jwt` only if absent, or supply settings
+through the environment. [.env.example](.env.example) lists optional integration inputs;
+existing installations retain their enrolled route and state. Offline runs need no inputs.
 
-Install the relevant extras: `google`, `openai`, `anthropic`, `logfire`,
-`server`, or `postgres`. For example:
+Available extras are `google`, `openai`, `anthropic`, `logfire`, `server`, `postgres`, and
+`sandbox`. Keep the entire selected set in each locked sync. An authenticated CLI run uses
+the already installed environment and a privately supplied user token:
 
 ```sh
-uv sync --locked --extra google --extra server --group dev
-uv run agent probe
-uv run agent run --task 'Summarize POC-1' --profile parent
+uv run --no-sync agent run --task 'Summarize POC-1' --profile parent
 ```
 
 Authenticated runs require a signed user access token and a configured OAuth provider.
@@ -53,15 +54,25 @@ Environment variables override `.env.local`.
 
 ## Browser workspace
 
-Install the server and model/database extras, configure the three LOGIN_* settings,
-and run **uv run agent workspace**. Register the exact callback printed by the command,
-then open its local URL to sign in, submit tasks and view results.
-See [browser setup](docs/usage.md#browser-workspace) for instructions.
+Follow the [setup runbook](docs/setup.md) for OIDC login, the selected model key,
+Vault/database settings, trust and local recovery/response enrollment. The three `LOGIN_*`
+settings are part of that configuration. Inspect current next steps first:
+
+```sh
+uv run --no-sync agent setup guide --recipe workspace-read
+uv run --no-sync agent setup check --recipe workspace-read
+```
+
+After the guide's required preparation and policy review, a successful local check permits
+`uv run --no-sync agent workspace`. Confirm the printed callback matches the login
+application's registered callback, then open the actual loopback URL and sign in.
+Local readiness, sign-in, an allowed read and confirmed cleanup are separate results.
+See [browser setup](docs/usage.md#browser-workspace) for details.
 Use **Check connection** for diagnostics and **Check recovery** after operator repair.
 Live database access first requires [prospective recovery enrollment](docs/usage.md#durable-recovery).
 
 For generated database analysis, install the `sandbox` extra and select `database-analyst`.
-Run `uv run agent sandbox demo` to see real Monty computation and blocked remote-command
+Run `uv run --no-sync agent sandbox demo` to see real Monty computation and blocked remote-command
 attempts with synthetic data. See [Monty setup](docs/setup.md#monty-database-query-agent).
 
 ## Development and evidence
@@ -86,7 +97,7 @@ intake, exact provider controls, independent checks, and guided recovery.
 exact enrollment and independent identity/permission proofs through `agent govern`.
 
 Contributors can list, run, and inspect the synthetic security regression matrix with
-`uv run python scripts/run_security_regression.py run`; see [contributor checks](CONTRIBUTING.md#security-regression-checks).
+`uv run --no-sync python scripts/run_security_regression.py run`; see [contributor checks](CONTRIBUTING.md#security-regression-checks).
 
 Use `agent closeout` to guide demonstrations, assess private evidence, reconcile client counts,
 and prepare a reviewed handoff. It runs locally; see the [closeout workflow](docs/usage.md#poc-closeout).

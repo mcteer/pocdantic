@@ -29,13 +29,14 @@ from the default branch. Use your normal Git identity.
 
 ~~~sh
 uv sync --locked --extra server --extra logfire --extra postgres --extra sandbox --extra google --extra openai --extra anthropic --group dev --group browser
-uv run --group browser playwright install webkit
+uv run --no-sync playwright install webkit
 scripts/install-hooks.sh
-uv run agent demo
+uv run --no-sync agent demo
 ~~~
 
-Tests and the offline demo need no customer credentials. Install provider extras only
-when testing a provider. Use .env.local only for authorized live checks; never commit it.
+The complete CI suite above installs all reviewed provider extras for synthetic constructor
+tests. Focused development can install only the extras its checks require. Tests and the
+offline demo need no customer credentials. Use .env.local only for authorized live checks; never commit it.
 Do not run live provisioning as part of a normal test or PR.
 
 Use the committed lockfile. For dependency changes, edit pyproject.toml, run
@@ -85,7 +86,7 @@ The constitution requires:
 
 ### Finding your way through the code
 
-Start with [the offline demo](src/agent/demo.py) and run `uv run agent demo` to
+Start with [the offline demo](src/agent/demo.py) and run `uv run --no-sync agent demo` to
 see a task delegate a ticket read without credentials or network access. Then follow
 these paths; module and function docstrings explain the local contracts.
 
@@ -93,6 +94,7 @@ these paths; module and function docstrings explain the local contracts.
 | --- | --- |
 | How does a task become a bounded agent run? | [CLI](src/agent/cli.py) → [runtime](src/agent/runtime.py) → [capabilities](src/agent/capabilities.py) |
 | What grants permission to a tool? | [Verified identity](src/agent/oauth.py), [policy](src/agent/security.py), and [single-use approval](src/agent/approval.py) |
+| Why does setup block launch or a working directory? | [Recipe checks](src/agent/setup/prerequisites.py), [guidance](src/agent/setup/guidance.py), [model credentials](src/agent/model_config.py), and [root admission](src/agent/project.py) |
 | How does browser sign-in work? | [Workspace routes](src/agent/workspace/app.py) → [login verification](src/agent/workspace/auth.py) → [sessions](src/agent/workspace/sessions.py) |
 | What happens during sign-out or an uncertain submission? | [Job manager](src/agent/workspace/runs.py), [HTTP boundary](src/agent/workspace/security.py), and [browser code](src/agent/workspace/static/app.js) |
 | Where do database passwords come from, and who cleans them up? | [Delegation broker](src/agent/broker.py) → [Vault lease lifecycle](src/agent/vault.py) |
@@ -135,15 +137,21 @@ Run the same software gates as CI:
 
 ~~~sh
 python3 scripts/check_privacy.py --history
-uv run python scripts/check_gates.py --all-features
-uv run python scripts/check_gates.py --runtime-only
-uv run ruff check .
-uv run ruff format --check .
-uv run --group browser pytest -q
-uv run agent demo
+uv run --no-sync python scripts/check_gates.py --all-features
+uv run --no-sync python scripts/check_gates.py --runtime-only
+uv run --no-sync ruff check .
+uv run --no-sync ruff format --check .
+uv run --no-sync pytest -q
+uv run --no-sync python scripts/run_security_regression.py run
+uv run --no-sync agent validate run
+uv run --no-sync agent demo
 uv build
-uv run python scripts/check_distribution.py
+uv run --no-sync python scripts/check_distribution.py
 ~~~
+
+CI also runs focused onboarding, ten locked wheel/sdist installation combinations, Linux/macOS
+Monty workers and the disposable PostgreSQL fixture. See [.github/workflows/ci.yml](.github/workflows/ci.yml)
+for the authoritative job list and [onboarding checks](#repeatable-onboarding-checks) for local commands.
 
 Privacy checks inspect the Git index and tracked history. Review git diff --cached
 and rerun the privacy gate after staging. The allowlist in scripts/publish_policy.py
@@ -194,7 +202,7 @@ They do not constitute a compliance certification.
 
 ## Validation harness checks
 
-Run `uv run agent validate run` alongside the existing offline demo. CI also exercises ten
+Run `uv run --no-sync agent validate run` alongside the existing offline demo. CI also exercises ten
 consecutive unique runs (at most 30 seconds each), two synthetic profile configurations and
 10,000-event report assembly (at most five seconds excluding I/O). Tests deny network with poisoned
 provider/OTel environment variables. No live credentials or phone requests belong in CI.
@@ -212,10 +220,10 @@ is introduced by feature 002. The optional live adapters and exporter still use 
 After the locked development sync above, list the reviewed security catalog and run it:
 
 ```sh
-uv run python scripts/run_security_regression.py list
-uv run python scripts/run_security_regression.py run
-uv run python scripts/run_security_regression.py run --case approval-effects --profile restricted
-uv run python scripts/run_security_regression.py report --run UUID
+uv run --no-sync python scripts/run_security_regression.py list
+uv run --no-sync python scripts/run_security_regression.py run
+uv run --no-sync python scripts/run_security_regression.py run --case approval-effects --profile restricted
+uv run --no-sync python scripts/run_security_regression.py report --run UUID
 ```
 
 The full command runs both actual fixed policies: baseline permits POC/ALT ticket projects;
@@ -241,9 +249,9 @@ Demo-tier native audit is unavailable; synthetic success cannot promote customer
 
 ## Closeout checks
 
-`uv run pytest -q tests/test_closeout_*.py` covers local evidence extraction, all fifteen
-criteria, four count scenarios, review conflicts, packages, privacy and bounds. Fixtures deny
-provider/network/subprocess setup and use temporary private stores. The complete repository
+`uv run --no-sync pytest -q tests/test_closeout_*.py` covers local evidence extraction, all fifteen
+criteria, four count scenarios, review conflicts, packages, privacy and bounds. Fixtures permit only bounded, read-only Git root discovery and deny
+provider/network and other subprocess setup and use temporary private stores. The complete repository
 suite and two-profile security regression remain required. `agent closeout` is installed
 runtime code; it never imports or launches contributor scripts. Capture a separately completed
 regression run as software evidence. No new environment variables are needed.
@@ -252,8 +260,8 @@ Optional sandbox code must use Monty with a single authorized query callback. Ge
 SQL lowers to a closed read plan and trusted parameterized compiler. Fixed-reader behavior
 stays unchanged. Document host-task ownership, cancellation and cleanup ordering.
 
-Run real-worker checks with `uv run pytest -q tests/test_sandbox_*.py`. The optional
-`uv run python scripts/sandbox_postgres_fixture.py` starts a disposable, loopback-only TLS
+Run real-worker checks with `uv run --no-sync pytest -q tests/test_sandbox_*.py`. The optional
+`uv run --no-sync python scripts/sandbox_postgres_fixture.py` starts a disposable, loopback-only TLS
 PostgreSQL container, tests the compiler and restricted grants, then removes it. It uses
 no application database settings. CI runs that fixture plus macOS/Linux worker checks and
 a separate installation without sandbox dependencies. Monty worker exit cannot prove host

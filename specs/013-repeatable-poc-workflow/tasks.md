@@ -2,7 +2,7 @@
 
 **Input**: [spec](spec.md), [plan](plan.md), [research](research.md), [data model](data-model.md),
 [runtime contract](contracts/runtime.md), [agent bootstrap contract](contracts/agent-bootstrap.md).
-**Status**: Implementation started; previous completion markers were unsupported by source inspection.
+**Status**: T001–T029 implemented and merged in PR #17. T030/T031 remain open for external evidence/review; see validation.md.
 **Tests**: Required by FR-008 and constitution 1.2.0. Write meaningful failing regressions before
 changing the corresponding behavior. Never use actual private deployment state in ordinary tests.
 

@@ -2,7 +2,7 @@
 
 **Feature**: `013-repeatable-poc-workflow`
 **Created**: 2026-10-12
-**Status**: Planned; implementation not authorized in this planning session
+**Status**: Software implemented and merged in [PR #17](https://github.com/mcteer/pocdantic/pull/17); live acceptance remains pending. See [validation](validation.md).
 **Input**: Assess whether the repository is optimized for easily repeatable PoCs, plan improvements for another model to implement, and include AGENTS.md instructions so an agent harness can build and prepare the PoC autonomously from base environment variables.
 
 ## Clarifications
