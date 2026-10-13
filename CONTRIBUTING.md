@@ -28,7 +28,7 @@ Use Python 3.12+ and uv. Fork the repository, clone your fork and create a focus
 from the default branch. Use your normal Git identity.
 
 ~~~sh
-uv sync --locked --extra server --extra logfire --extra postgres --group dev --group browser
+uv sync --locked --extra server --extra logfire --extra postgres --extra sandbox --extra google --extra openai --extra anthropic --group dev --group browser
 uv run --group browser playwright install webkit
 scripts/install-hooks.sh
 uv run agent demo
@@ -258,3 +258,21 @@ PostgreSQL container, tests the compiler and restricted grants, then removes it.
 no application database settings. CI runs that fixture plus macOS/Linux worker checks and
 a separate installation without sandbox dependencies. Monty worker exit cannot prove host
 callback or credential cleanup: keep explicit task ownership until every callback drains.
+
+## Repeatable onboarding checks
+
+After the complete locked development sync above, run focused synthetic onboarding:
+
+```sh
+uv run --no-sync pytest -q tests/test_offline_entrypoints.py tests/test_setup_recipes.py tests/test_setup_guidance.py tests/test_project_boundary.py tests/test_model_configuration.py tests/test_setup_walkthrough.py
+uv run --no-sync python scripts/check_onboarding.py --case offline
+uv run --no-sync python scripts/check_onboarding.py --case guided
+```
+
+The fixed-case helper denies live dispatch, limits the total run to 180 seconds plus ten-second
+drain and never accepts command text. Offline children each have a thirty-second timeout.
+Installed checks run from built artifacts outside source/PYTHONPATH, using dependencies exported
+from the committed lock. CI covers wheel/sdist, base and selected-provider/analysis environments.
+Exit 0 is software pass, 1 failure, 2 unavailable prerequisites, 130 interruption. Raw outputs and
+private canaries never enter publication. Real two-provider/colleague timings and maintainer
+boundary review remain separate gates; synthetic success cannot complete them.

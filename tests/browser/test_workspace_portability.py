@@ -28,3 +28,19 @@ def test_generic_bad_identity_does_not_open_workspace(workspace_browser):
     expect(page.locator("#error")).to_contain_text("Sign-in could not be verified")
     assert page.locator("#workspace").is_hidden()
     assert app.state.test_counts["read"] == app.state.test_counts["prompt"] == 0
+
+
+def test_custom_direct_model_and_missing_guided_key(workspace_settings):
+    """Direct custom integrations remain possible; guided selected keys are strict."""
+    from pydantic import SecretStr
+
+    from agent.setup.prerequisites import common
+    from agent.workspace.app import prerequisites
+
+    config = workspace_settings.model_copy(update={"model": "custom:synthetic"})
+    assert "MODEL" not in prerequisites(config)
+    assert "MODEL" in common(config, guided=True)
+    config = config.model_copy(
+        update={"model": "openai:synthetic", "openai_api_key": SecretStr("")}
+    )
+    assert "OPENAI_API_KEY" in prerequisites(config)

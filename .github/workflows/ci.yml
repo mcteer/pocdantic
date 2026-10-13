@@ -12,7 +12,7 @@ jobs:
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: '0.12.5'
-      - run: uv sync --locked --extra server --extra logfire --extra postgres --extra sandbox --group dev --group browser
+      - run: uv sync --locked --extra server --extra logfire --extra postgres --extra sandbox --extra google --extra openai --extra anthropic --group dev --group browser
       - run: python3 scripts/check_privacy.py --history
       - run: uv run python scripts/check_gates.py --all-features
       - run: uv run python scripts/check_gates.py --runtime-only
@@ -27,6 +27,57 @@ jobs:
       - run: uv run agent demo
       - run: uv build
       - run: uv run python scripts/check_distribution.py
+
+  onboarding:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        with:
+          version: '0.12.5'
+          python-version: '3.12'
+      - run: uv sync --locked --extra server --extra postgres --extra sandbox --extra google --extra openai --extra anthropic --group dev
+      - run: uv run --no-sync python scripts/check_onboarding.py --case offline
+      - run: uv run --no-sync python scripts/check_onboarding.py --case guided
+
+  onboarding-artifacts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        artifact: [wheel, sdist]
+        recipe: [base, google, openai, anthropic, analysis]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        with:
+          version: '0.12.5'
+          python-version: '3.12'
+      - run: uv build
+      - name: Install artifact with committed dependency resolution
+        shell: bash
+        env:
+          RECIPE: ${{ matrix.recipe }}
+          ARTIFACT: ${{ matrix.artifact }}
+        run: |
+          extras=()
+          case "$RECIPE" in
+            google|openai|anthropic) extras=(--extra server --extra postgres --extra "$RECIPE") ;;
+            analysis) extras=(--extra server --extra postgres --extra google --extra sandbox) ;;
+          esac
+          uv export --locked --no-dev --no-emit-project "${extras[@]}" -o /tmp/onboarding-requirements.txt
+          uv venv /tmp/onboarding-artifact
+          uv pip sync --python /tmp/onboarding-artifact/bin/python /tmp/onboarding-requirements.txt
+          if [ "$ARTIFACT" = wheel ]; then
+            artifact=(dist/*.whl)
+          else
+            artifact=(dist/*.tar.gz)
+          fi
+          uv pip install --python /tmp/onboarding-artifact/bin/python --no-deps "${artifact[0]}"
+          cd /tmp
+          /tmp/onboarding-artifact/bin/python "$GITHUB_WORKSPACE/scripts/check_onboarding.py" --case installed
 
   sandbox-platform:
     runs-on: ${{ matrix.os }}

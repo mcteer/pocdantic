@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     google_api_key: SecretStr | None = Field(
         default=None, validation_alias="GOOGLE_API_KEY", repr=False
     )
+    openai_api_key: SecretStr | None = Field(
+        default=None, validation_alias="OPENAI_API_KEY", repr=False
+    )
+    anthropic_api_key: SecretStr | None = Field(
+        default=None, validation_alias="ANTHROPIC_API_KEY", repr=False
+    )
     database_auth_mode: Literal["delegated-exchange", "user-jwt"] = "delegated-exchange"
     oauth_trusted_hosts: tuple[str, ...] = ()
     oauth_ca_file: str | None = Field(default=None, repr=False)
@@ -186,3 +192,31 @@ class Settings(BaseSettings):
         if self.vault_jwt_auth_role is not None:
             DatabaseTarget.path(self.vault_jwt_auth_role)
         return self
+
+
+def synthetic_settings() -> Settings:
+    """Validate fixed offline defaults without consulting dotenv or process environment.
+
+    The bundled profile path is absolute so an unrelated cwd profile cannot redirect
+    the rehearsal. This factory changes no process-global settings or private files.
+    """
+    from importlib.resources import files
+    from pathlib import Path
+
+    class SyntheticSettings(Settings):
+        """Offline settings whose only source is explicitly supplied trusted defaults."""
+
+        @classmethod
+        def settings_customise_sources(
+            cls, settings_cls, init_settings, env_settings, dotenv_settings, file_secret_settings
+        ):
+            """Exclude live sources before validation, rather than suppressing errors."""
+            return (init_settings,)
+
+    resource = files("agent").joinpath("default_agents.json")
+    profiles = (
+        str(Path(str(resource)).resolve())
+        if resource.is_file()
+        else str(Path(__file__).resolve().parents[2] / "config/agents.json")
+    )
+    return SyntheticSettings(profiles_file=profiles)

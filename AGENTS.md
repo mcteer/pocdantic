@@ -24,32 +24,72 @@ Keep examples synthetic and avoid personal names, tenant identifiers, and repeat
 
 ## Help someone set up the PoC
 
-Use [docs/setup.md](docs/setup.md) as the setup runbook and
-[docs/configuration.md](docs/configuration.md) as the setting reference. A request to
-get the PoC running means carry out the local setup, diagnose readiness, and help the
-user reach a signed-in workspace and a successful database read.
+Use [docs/setup.md](docs/setup.md) and [docs/configuration.md](docs/configuration.md).
+Implementing a feature and operating an installed PoC are distinct scopes. A setup request
+means carry out authorized local preparation and reach a signed-in workspace and successful
+read; it does not authorize source edits or remote provider policy/grant changes.
 
-1. Establish whether this is a fresh deployment or an existing installation. Preserve
-   existing `.env.local` and `.local/` state; follow the runbook's migration section
-   before changing an enrolled provider, route, trust bundle or database target.
-2. For the portable browser baseline, use `user-jwt`. Collect the administrator-provided
-   OIDC, Vault and database settings listed in the runbook. Ask only for missing details;
-   tell the user exactly which administrator must supply them and what to request.
-   Have the user enter secrets directly in `.env.local`, outside the conversation.
-3. Install the documented locked extras, create the private template if absent, then run
-   `agent setup check`. Report missing setting names without printing configuration or
-   credentials. Perform the explicit network check within the user's setup authorization.
-4. Enroll absent recovery/response state using the documented commands. Present the
-   response policy for review before enrollment; never erase state to bypass a block.
-   Start `agent workspace` and give the actual loopback URL and exact login steps.
-5. For browser assistance use Playwright/WebKit. Human sign-in may still be needed:
-   provide the page and expected result, then continue after the user finishes.
-   Distinguish successful sign-in, allowed read, denial and confirmed cleanup. Do not
-   claim optional provider capabilities from configuration or synthetic checks.
+Select `offline` for rehearsal, `workspace-analysis` for Monty/query work, otherwise
+`workspace-read`. Establish the canonical deployment root first: stateful CLI commands refuse
+nested Git directories, linked roots and unavailable Git discovery. Installed use outside Git
+uses cwd. Preserve `.env.local`, `.local/`, the existing route and policy drafts. Separate
+checkouts/worktrees are separate deployments; never copy enrollment or erase holds.
 
-Local setup authorization does not authorize changing remote provider policy or grants.
-When administration is needed, provide the runbook's exact steps and verify recovery
-afterward. Finish with the workspace URL, checks performed and concrete remaining actions.
+Base inputs are process environment variables or owner-only `.env.local`; environment wins.
+Ask only for missing names and their administrator. Never request secrets in chat or dump values.
+
+| Inputs for fresh live setup | Supplying owner / default |
+| --- | --- |
+| `DATABASE_AUTH_MODE`, `OAUTH_PROVIDER` | Operator: explicit `user-jwt`, `generic` for fresh baseline; preserve enrolled routes |
+| `OAUTH_DISCOVERY_URL`, `OAUTH_ISSUER`, `OAUTH_AUDIENCE` | Identity administrator: audience distinct from browser client |
+| `LOGIN_CLIENT_ID`, `LOGIN_CLIENT_SECRET`, `LOGIN_SCOPES` | Identity administrator: authorization-code/PKCE; `openid database:read` |
+| `VAULT_ADDR`, `VAULT_JWT_AUTH_ROLE` | Vault administrator: constrained human JWT role; mount defaults to `jwt` |
+| `VAULT_DATABASE_MOUNT`, `VAULT_DATABASE_ROLE` | Vault administrator: defaults `database`/`poc-readonly`, verify these exist |
+| `DATABASE_HOST`, `DATABASE_NAME`, `DATABASE_PORT` | Database administrator: SELECT-only role and record 1; port defaults to `5432` |
+| `MODEL`, selected `GOOGLE_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | Operator/model administrator: preserve Google default or select matching reviewed prefix |
+| `OAUTH_CA_FILE`, `VAULT_CA_FILE`, `DATABASE_SSLROOTCERT`, `OAUTH_TRUSTED_HOSTS` | Respective administrators when custom trust is needed; no wildcard/bypass |
+| `VAULT_NAMESPACE`, `OAUTH_ACCESS_TOKEN_TYP` | Respective administrators when applicable; actual token type, default `at+jwt` |
+
+Offline needs none of these inputs. Delegated-exchange also needs its documented OAuth client,
+secret and Vault audience; do not silently switch routes. Browser setup requires neither a saved
+bearer/denied token nor a Vault/admin token or phone authenticator.
+
+1. Install the entire selected extras set together with Python 3.12+ and committed `uv.lock`:
+   `uv sync --locked --no-dev` for offline; add `--extra server --extra postgres --extra google`
+   for reads, replacing only `google` with `openai` or `anthropic` when selected; analysis adds
+   `--extra sandbox`. Later syncs can remove omitted extras. Follow-up commands use
+   `uv run --no-sync agent ...`. Run `agent demo`; analysis also runs `agent sandbox demo`.
+2. Create configuration with `agent setup init --mode user-jwt` only if absent and file input
+   is desired. Existing exported inputs need no duplicate file. Run `agent setup guide --recipe
+   workspace-read --format json` and `agent setup check --recipe workspace-read`, substituting
+   the selected literal recipe. Exit 2 means input/dependency/root repair; exit 3 means
+   enrollment, review or recovery; exit 0 means local prerequisites only. Unknown guided model
+   integrations require integration-owner review. A nonzero exit does not authorize init.
+3. For authorized live setup, run `agent setup check --recipe workspace-read --network`:
+   public metadata/seal status and bounded TCP only. Follow available actions; `after-prerequisites` actions
+   require their prerequisites first. Only wholly absent recovery permits `agent recover init`.
+   Partial/busy/held/mismatched/damaged state needs status and documented repair, never reset.
+4. With valid recovery and wholly absent policy, run `agent respond init --prepare`. Present
+   the actual draft choices: local-only intake, no sources, no remote control authority,
+   automatic provider cleanup false. Preserve context/definition/issuer. Run `agent respond init`
+   only after actual explicit review of that unchanged policy; reuse already supplied review.
+   Existing enrollment skips preparation/review/init. A template or setting is not approval.
+5. Recheck, then launch `agent workspace` with process/session ownership. Verify it responds and
+   return the actual listening loopback URL and registered callback printed by the process.
+   Do not invent a running server or silently change a port/callback. Use Playwright/WebKit for
+   authorized browser help: open the URL, choose Sign in, have the user authenticate, and continue
+   after return to the workspace. Never request or export cookies/tokens.
+6. Select `database-reader`, request record 1; analysis selects `database-analyst` and count by
+   status. Use observed stages and exact cleanup, not model narrative. Run `agent recover status`.
+   Separate CLI allow/deny checks require supplied private tokens and authorized effects.
+
+Retry a non-effectful local check once after actual repair. Repeated unchanged failure ends in
+its exact code, owner, next action and recheck; new supplied inputs can begin another cycle.
+Never automatically retry uncertain issuance/reads, enrollment races or provider effects.
+Finish with selected recipe/route/extras, observed software checks, actual URL/callback/process
+state, and separate sign-in/read/denial/cleanup dispositions plus concrete remaining actions.
+Optional/native acceptance requires private source evidence and review. Local setup authorization
+does not authorize remote administration; provide the runbook's administrator steps instead.
 
 ## Development
 
@@ -57,7 +97,7 @@ Use Python 3.12+ and the committed `uv.lock`. Install only the extras needed for
 The CI environment is reproduced with:
 
 ```sh
-uv sync --locked --extra server --extra logfire --extra postgres --group dev --group browser
+uv sync --locked --extra server --extra logfire --extra postgres --extra sandbox --extra google --extra openai --extra anthropic --group dev --group browser
 uv run --group browser playwright install webkit
 ```
 

@@ -2,7 +2,7 @@
 
 **Input**: [spec](spec.md), [plan](plan.md), [research](research.md), [data model](data-model.md),
 [runtime contract](contracts/runtime.md), [agent bootstrap contract](contracts/agent-bootstrap.md).
-**Status**: Implementation with Qwen Coder-Next (low reasoning disabled).
+**Status**: Implementation started; previous completion markers were unsupported by source inspection.
 **Tests**: Required by FR-008 and constitution 1.2.0. Write meaningful failing regressions before
 changing the corresponding behavior. Never use actual private deployment state in ordinary tests.
 

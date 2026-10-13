@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 from .demo import model as demo_model
+from .model_config import selected_model
 from .oauth import JWTVerifier, OAuthClient
 from .probe import oauth_config, probe
 from .runtime import Runtime
@@ -18,22 +19,6 @@ from .schemas import Principal, RequestEnvelope
 from .security import SecurityError
 from .settings import Settings
 from .telemetry import configure_telemetry
-
-
-def selected_model(settings: Settings):
-    """Resolve the configured model, injecting the Google key only into its provider.
-
-    Other provider names are passed to Pydantic AI for resolution.
-    """
-    if settings.model.startswith("google-gla:") and settings.google_api_key:
-        from pydantic_ai.models.google import GoogleModel
-        from pydantic_ai.providers.google import GoogleProvider
-
-        return GoogleModel(
-            settings.model.split(":", 1)[1],
-            provider=GoogleProvider(api_key=settings.google_api_key.get_secret_value()),
-        )
-    return settings.model
 
 
 async def authenticated_principal(settings: Settings) -> Principal:
@@ -62,6 +47,10 @@ async def execute(args) -> int:
     Runs and batches authenticate before creating trusted adapters. Live probe and
     push-demo commands can issue tokens or phone prompts; demo stays synthetic.
     """
+    from .project import configuration_free, require_root
+
+    if not configuration_free(args):
+        require_root()
     if args.command == "closeout":
         from .closeout.commands import execute_closeout
 
@@ -82,21 +71,23 @@ async def execute(args) -> int:
         from .validation.commands import execute_validation
 
         return await execute_validation(args)
-    settings = Settings()
     if args.command == "push-demo":
+        settings = Settings()
         from .push_demo import push_demo
 
         result = await push_demo(settings)
         print(json.dumps(result))
         return 0 if result["result"]["status"] == "simulated" else 1
     if args.command == "probe":
+        settings = Settings()
         print(json.dumps(await probe(settings), indent=2))
         return 0
     if args.command == "demo":
         # Explicitly synthetic mode: no local credentials/Logfire and no external model call.
         from .response.guard import MemoryStore
+        from .settings import synthetic_settings
 
-        offline = Settings(_env_file=None)
+        offline = synthetic_settings()
         runtime = Runtime(offline, model=demo_model(), response_store=MemoryStore(offline))
         child_model = demo_model()
         with runtime.agents["ticket-reader"].override(model=child_model):
@@ -111,6 +102,7 @@ async def execute(args) -> int:
         print(result.model_dump_json())
         print(json.dumps({"mode": "synthetic", "audit": runtime.audit.events}))
         return 0 if result.status == "completed" else 1
+    settings = Settings()
     principal = await authenticated_principal(settings)
     telemetry = configure_telemetry(settings)
     from .broker import DatabaseBroker
@@ -193,6 +185,12 @@ def main() -> None:
     add_closeout_parser(sub)
     args = parser.parse_args()
     try:
+        from .project import require_root
+
+        if args.command in {"workspace", "serve"} or (
+            args.command == "respond" and args.response_command == "serve"
+        ):
+            require_root()
         if args.command == "sandbox":
             from .sandbox.commands import execute_sandbox
 

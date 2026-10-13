@@ -19,6 +19,7 @@ def closeout_project(tmp_path, monkeypatch):
     from agent.settings import Settings
 
     attempts = []
+    process = subprocess.Popen
 
     def denied(*args, **kwargs):
         """Fail any accidental provider setup or effect in the local closeout workflow."""
@@ -30,7 +31,14 @@ def closeout_project(tmp_path, monkeypatch):
     monkeypatch.setattr(httpx.Client, "__init__", denied)
     monkeypatch.setattr(socket.socket, "connect", denied)
     monkeypatch.setattr(socket.socket, "connect_ex", denied)
-    monkeypatch.setattr(subprocess, "Popen", denied)
+
+    def root_discovery_only(arguments, *args, **kwargs):
+        """Allow only bounded CLI Git root discovery; all other subprocesses remain denied."""
+        if arguments == ["git", "rev-parse", "--show-toplevel"] and kwargs.get("cwd") == tmp_path:
+            return process(arguments, *args, **kwargs)
+        return denied(arguments, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", root_discovery_only)
     monkeypatch.setenv("BEARER_TOKEN", "synthetic-poison-do-not-read")
     monkeypatch.setenv("VAULT_ADDR", "https://invalid.example")
     monkeypatch.chdir(tmp_path)

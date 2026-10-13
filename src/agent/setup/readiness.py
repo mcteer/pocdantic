@@ -25,8 +25,11 @@ def required(settings, *, cli=False, denial=False):
         names.append("PORTABILITY_DENIED_TOKEN" if denial else "BEARER_TOKEN")
     else:
         names.extend(["LOGIN_CLIENT_ID", "LOGIN_CLIENT_SECRET"])
-        if settings.model.startswith("google-gla:"):
-            names.append("GOOGLE_API_KEY")
+        from agent.model_config import descriptor
+
+        info = descriptor(settings.model)
+        if info:
+            names.append(info.credential_setting)
     if settings.database_auth_mode == "user-jwt":
         names.append("VAULT_JWT_AUTH_ROLE")
     else:
@@ -40,17 +43,26 @@ def required(settings, *, cli=False, denial=False):
     return tuple(name for name in names if not supplied(name))
 
 
-def local_check(settings, *, project=None, cli=False, denial=False):
+def local_check(settings, *, project=None, cli=False, denial=False, recipe=None):
     """Check configuration and durable admission without issuing tokens or changing state."""
     import importlib.util
     import time
+    from pathlib import Path
 
     from agent.probe import oauth_config
 
     from .http import tls_context
 
+    project = project or Path.cwd()
     started = time.monotonic()
+    if recipe == "offline":
+        return SetupReport(observations=(), instructions=("Run uv run --no-sync agent demo.",))
     missing = list(required(settings, cli=cli, denial=denial))
+    if recipe is not None:
+        from .prerequisites import recipe_missing
+
+        missing.extend(recipe_missing(settings, recipe))
+        missing = list(dict.fromkeys(missing))
     if (
         not cli
         and settings.database_auth_mode == "user-jwt"
@@ -78,15 +90,31 @@ def local_check(settings, *, project=None, cli=False, denial=False):
         from agent.runtime import load_definitions
 
         profiles = load_definitions(settings.profiles_file)
-        if (
-            "database-reader" not in profiles
-            or "database-read" not in profiles["database-reader"].capabilities
+        from .recipes import RECIPES
+
+        selected = RECIPES[recipe or "workspace-read"]
+        if selected.profile not in profiles or any(
+            capability not in profiles[selected.profile].capabilities
+            for capability in selected.required_capabilities
         ):
             raise ValueError()
     except Exception:
         profile_invalid = True
         missing.append("PROFILES_FILE")
-    invalid = oauth_invalid or vault_invalid or profile_invalid
+    database_invalid = False
+    if settings.database_sslrootcert:
+        from .http import ca_digest
+
+        try:
+            ca_digest(settings.database_sslrootcert)
+            import ssl
+
+            ssl.create_default_context(cafile=settings.database_sslrootcert)
+        except Exception:
+            database_invalid = True
+            missing.append("DATABASE_SSLROOTCERT")
+    invalid = oauth_invalid or vault_invalid or profile_invalid or database_invalid
+    missing = list(dict.fromkeys(missing))
     recovery_store = RecoveryStore(settings, project=project)
     recovery = recovery_store.status()
     response_needed = False
@@ -98,6 +126,12 @@ def local_check(settings, *, project=None, cli=False, denial=False):
         except Exception:
             response_needed = True
     blocked = recovery.recovery not in {"clear", "not_configured"}
+    if recipe is not None:
+        from .guidance import observe
+
+        observation = observe(settings, project=project)
+        blocked = blocked or observation.recovery_state != "clear"
+        response_needed = response_needed or observation.response_state != "enrolled"
     observations = []
     for feature in ("baseline-sign-in", "baseline-database"):
         feature_missing = (
@@ -119,7 +153,8 @@ def local_check(settings, *, project=None, cli=False, denial=False):
         )
         database_blocked = feature == "baseline-database" and (blocked or response_needed)
         feature_invalid = oauth_invalid or (
-            feature == "baseline-database" and (vault_invalid or profile_invalid)
+            feature == "baseline-database"
+            and (vault_invalid or profile_invalid or database_invalid)
         )
         failed = bool(feature_missing) or feature_invalid or database_blocked
         reason = (
@@ -165,6 +200,20 @@ def local_check(settings, *, project=None, cli=False, denial=False):
             "Supply listed settings privately using docs/setup.md; "
             "install the postgres extra if listed."
         )
+    if recipe is not None and missing:
+        from agent.model_config import descriptor
+
+        from .recipes import command
+
+        info = descriptor(settings.model)
+        if any(name.endswith("_EXTRA") for name in missing):
+            instructions.append(
+                command("install-extras", recipe=recipe, provider=info.provider if info else None)
+            )
+        if "MODEL" in missing:
+            instructions.append(
+                "Ask the integration owner to review this unsupported guided model integration."
+            )
     if blocked:
         instructions.append(
             "Run agent recover init once if uninitialized; otherwise agent recover status "
@@ -195,13 +244,17 @@ def local_check(settings, *, project=None, cli=False, denial=False):
     )
 
 
-async def check(settings, *, network=False, project=None, transport=None):
+async def check(settings, *, network=False, project=None, transport=None, recipe=None):
     """Observe configured public targets within diagnostics' bounded worker ownership."""
     import asyncio
     import time
 
+    if recipe == "offline" and network:
+        from agent.security import SecurityError
+
+        raise SecurityError("offline_network_forbidden")
     deadline = time.monotonic() + 30
-    report = local_check(settings, project=project)
+    report = local_check(settings, project=project, recipe=recipe)
     if not network or report.missing_settings or report.exit_code == 2:
         return report
     from agent.oauth import OAuthClient
