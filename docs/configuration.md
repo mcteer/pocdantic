@@ -1,7 +1,8 @@
 # Configuration reference
 
 Offline demo and validation require no environment variables. For live integrations,
-use only the relevant group below; unset settings use their defaults. Secrets belong
+use only the relevant group below; unset settings use their defaults. Start with the
+[recipe setup runbook](setup.md) for fresh or existing browser deployments. Secrets belong
 in the environment or ignored `.env.local`, never task text.
 
 Environment variables override `.env.local`. Short names take precedence over
@@ -45,9 +46,11 @@ Agent OAuth credentials and administrative Verify API credentials serve differen
 | LOGIN_CLIENT_SECRET | Unset; required by workspace |
 | LOGIN_SCOPES | openid |
 
-Use a separate confidential OIDC application; retain the actor's OAUTH_CLIENT_*
-credentials. POCDANTIC_LOGIN_* aliases remain supported. Add only scopes the
-provider grants, including offline_access for renewal where supported.
+Use a confidential OIDC login application. The `user-jwt` baseline requires
+`LOGIN_SCOPES="openid database:read"` and no separate actor OAuth client. Existing
+`delegated-exchange` installations retain their separate actor `OAUTH_CLIENT_*` credentials.
+`POCDANTIC_LOGIN_*` aliases remain supported. Add only granted scopes, including
+`offline_access` for renewal where supported.
 The application must issue the configured OAUTH_AUDIENCE and accept code/S256 PKCE.
 No cookie, session, browser URL or refresh environment setting is needed.
 
@@ -84,7 +87,9 @@ No cookie, session, browser URL or refresh environment setting is needed.
 
 | Variable | Default |
 | --- | --- |
-| `GOOGLE_API_KEY` | Unset |
+| `GOOGLE_API_KEY` | Unset; selected Google provider only |
+| `OPENAI_API_KEY` | Unset; selected OpenAI chat/responses provider only |
+| `ANTHROPIC_API_KEY` | Unset; selected Anthropic provider only |
 | `LOGFIRE_TOKEN` | Unset |
 | `LOGFIRE_BASE_URL` | Unset |
 | `LOGFIRE_PROJECT` | Unset |
@@ -267,7 +272,7 @@ Hash the inner `data` object returned by the reviewed SPIFFE role/config and nam
 GETs, rather than the outer response envelope. For an owner-only exported role receipt:
 
 ```sh
-uv run python -c 'import json,sys; from agent.governance.config import binding_digest; print(binding_digest(json.load(sys.stdin)["data"]))' < .local/governance/role-export.json
+uv run --no-sync python -c 'import json,sys; from agent.governance.config import binding_digest; print(binding_digest(json.load(sys.stdin)["data"]))' < .local/governance/role-export.json
 ```
 
 This prints a digest and makes no provider call. The
@@ -368,6 +373,6 @@ use `uv run --no-sync` for follow-up commands.
 
 Stateful CLI operations refuse nested/linked Git roots or failed discovery before private
 configuration access. Run from the canonical checkout/worktree root. Installed use outside Git
-anchors to cwd. No enrollment schema or file relocation is introduced: preserve aliases,
+anchors to cwd; Git must be available for stateful root discovery. No enrollment schema or file relocation is introduced: preserve aliases,
 authentication defaults and existing recovery/migration rules. Independent deployments use
 independent directories; never copy state or reset holds to make a check pass.

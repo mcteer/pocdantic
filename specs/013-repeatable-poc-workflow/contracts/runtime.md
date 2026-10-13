@@ -1,6 +1,6 @@
 # Runtime Contract: Repeatable PoC Workflow
 
-**Status**: Proposed for implementation, not commands newly available today.
+**Status**: Implemented in PR #17. The commands below are available; live acceptance remains separate.
 
 ## CLI additions and compatibility
 

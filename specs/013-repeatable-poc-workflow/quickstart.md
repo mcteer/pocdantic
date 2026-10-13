@@ -1,8 +1,8 @@
 # Implementation Validation Quickstart
 
-**Status**: Planned validation recipe. New guide flags, test files and the onboarding script below
-are implementation deliverables, not available commands at planning time. Do not run live setup
-as part of implementing this document. Existing private deployment state must remain untouched.
+**Status**: Implemented software validation recipe. Guide flags, test files and the onboarding
+script below are available. Software validation does not authorize live setup; existing private
+deployment state must remain untouched.
 
 ## 1. Reproduce the locked software environment
 
@@ -97,4 +97,4 @@ Two different OIDC products with separate Vault instances are required for porta
 
 If any administrator resource, participant, policy review or denied token is unavailable, stop at
 that boundary and record the exact owner/action/recheck. Do not report the whole PoC as complete
-because the software tests passed. This planning request authorizes none of these live effects.
+because the software tests passed. Software validation and documentation maintenance authorize none of these live effects.

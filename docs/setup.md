@@ -178,6 +178,9 @@ and [policy parameter constraints](https://developer.hashicorp.com/vault/docs/co
 
 ## Start a fresh workspace
 
+The example selects Google; substitute the selected OpenAI/Anthropic extra and matching
+`MODEL`/key when applicable. Sufficient exported settings need no duplicate private file.
+
 ```sh
 uv sync --locked --extra server --extra postgres --extra google --no-dev
 uv run --no-sync agent setup init --mode user-jwt
@@ -195,19 +198,21 @@ of at most 16 exact DNS names, without URLs or wildcards. Set `OAUTH_CA_FILE`,
 HTTPS verification remains enabled. See [configuration](configuration.md) for aliases.
 
 ```sh
-uv run --no-sync agent setup check
-uv run --no-sync agent setup check --network
+uv run --no-sync agent setup guide --recipe workspace-read
+uv run --no-sync agent setup check --recipe workspace-read
+uv run --no-sync agent setup check --recipe workspace-read --network
 uv run --no-sync agent recover init
 uv run --no-sync agent respond init --prepare
-# Inspect .local/response/policy.json; leave automatic provider cleanup disabled.
+# Present the unchanged policy for explicit review; enroll only after approval.
+# Keep automatic provider cleanup disabled for this baseline.
 uv run --no-sync agent respond init
 uv run --no-sync agent workspace
 ```
 
 The response commands enroll the existing local safety controls, without changing providers.
 Run first-time enrollment only for absent state. The default check is local; `--network` reads public metadata/seal status and tests TCP
-reachability without issuing credentials. Exit 2 means configuration/dependency repair,
-3 means recovery repair. Follow the returned setting names and instructions. A healthy
+reachability without issuing credentials. Exit 2 means configuration/dependency/root repair;
+3 means enrollment, policy review or recovery work. Follow the returned setting names and instructions. A healthy
 provider is not proof of permission. Open the printed loopback URL, choose Sign in,
 complete your provider login, choose `database-reader`, and request record 1.
 
@@ -280,11 +285,15 @@ Switching modes is explicit. Unsupported advanced features do not cause automati
 
 ## Monty database query agent
 
-Complete the OIDC/Vault/PostgreSQL setup above, then install the optional sandbox support:
+Complete the OIDC/Vault/PostgreSQL setup above, then add sandbox to the complete selected
+extras set. The example uses Google; retain your selected OpenAI/Anthropic extra instead
+when applicable, without changing the enrolled authentication route:
 
 ```sh
 uv sync --locked --extra sandbox --extra server --extra postgres --extra google --no-dev
 uv run --no-sync agent sandbox demo
+uv run --no-sync agent setup guide --recipe workspace-analysis
+uv run --no-sync agent setup check --recipe workspace-analysis
 uv run --no-sync agent workspace
 ```
 
@@ -330,7 +339,8 @@ For agent-assisted setup, add to the prompt at the top of this guide:
  database-analyst. Explain model refusal, sandbox denial and query-policy denial separately.”
 No additional provider administrator credentials or Full Monty deployment is required.
 
-Adding database-analyst changes the default profile fingerprint. On an existing installation,
+Upgrading an installation whose enrolled profiles predate database-analyst changes its profile
+fingerprint. On that existing installation,
 stop the workspace, resolve all prior attempts under its original configuration, then run
 `uv run --no-sync agent recover migrate` to preserve history and adopt the new profiles. Existing
 response/governance policies also pin their context; inspect their status and follow the

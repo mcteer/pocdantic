@@ -26,8 +26,7 @@ Recheck with quickstart.md section 6. These tasks remain unchecked in both featu
 
 T031 still requires the maintainer's boundary review of provider-secret loading, root admission
 and state classification, followed by review/privacy checking of the actual publication index.
-A temporary prospective index was reviewed and passed privacy/history; the real index remains
-unchanged. No maintainer approval or publication disposition is fabricated. Synthetic checks
+Temporary prospective and actual staged indexes passed privacy/history before publication. No maintainer approval or publication disposition is fabricated. Synthetic checks
 cannot close either task; acceptance.json remains entirely blocked.
 
 ## Current results
@@ -75,9 +74,8 @@ file as an artifact. Subsequent focused checks passed.
 
 Final repository suite: `uv run --no-sync pytest -q` — **1315 passed, 1 skipped**, 204.59 seconds.
 The ordinary suite skips the opt-in PostgreSQL fixture; its separately invoked TLS container
-check passed. This local run is macOS/Python 3.12.14. Linux/macOS hosted matrix execution and
-branch protection are not claimed; CI definitions were updated but no push or hosted run was
-requested. Ten artifact installs on final software bytes passed again, including installed
+check passed. This local run is macOS/Python 3.12.14. The later PR/push workflows also passed the hosted Linux/macOS matrix;
+branch protection remains an outstanding configuration item. Ten artifact installs on final software bytes passed again, including installed
 nested-Git refusal before poisonous settings access. Final both-profile security regression
 completed with every selected case passing and all native groups still blocked.
 
@@ -109,9 +107,18 @@ only explicitly generated synthetic validation/regression evidence was added und
 
 ## Delivery disposition
 
-Software implementation is ready for maintainer review. Source, regression tests, docs and CI
-changes are being prepared for a PR under the subsequent merge request. T030 and T031 remain
-open until their evidence/review requirements are satisfied. GitHub reports main is unprotected;
-required validate/PR-review protection is an outstanding maintainer configuration prerequisite.
+[PR #17](https://github.com/mcteer/pocdantic/pull/17) merged on 2026-10-13 at 14:49:02 UTC
+as `c7122caad16bf4b95b40dc190dc025615bffd5dc`, with explicit maintainer merge authorization
+in the implementation session. All 32 PR/push checks passed on implementation head
+`7d8f2f0c4d367bccb61a235953d6f0f7792fc966`, including hosted Linux/macOS sandbox,
+container, onboarding and wheel/sdist matrix jobs. See the
+[PR workflow](https://github.com/mcteer/pocdantic/actions/runs/38415329886) and
+[push workflow](https://github.com/mcteer/pocdantic/actions/runs/38415321904).
+
+GitHub recorded no formal PR approval, and main was unprotected at merge. T031 remains open
+for its formal boundary-review record and branch-protection follow-through; merge authorization
+is recorded separately from those requirements. T030 live provider/colleague evidence remains
+pending, and acceptance.json stays blocked. No live provider effect or private configuration
+change was authorized or performed by the merge.
 Extension hooks were checked before and after implementation: `.specify/extensions.yml` is
 absent, so no hooks require dispatch. Requirements/security checklist markers were not changed.

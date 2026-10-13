@@ -1,6 +1,6 @@
 # Data Model: Repeatable PoC Workflow
 
-These are planned strict Python/Pydantic boundary models, not a new storage schema. All new
+These are implemented ephemeral Python/Pydantic contracts, not a new storage schema. All new
 models reject extra fields; catalog definitions are immutable. Reports contain names/codes only,
 never configuration values, credential handles, raw exceptions, provider bodies or evidence paths.
 

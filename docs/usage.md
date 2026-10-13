@@ -2,14 +2,19 @@
 
 ## Configuration
 
-Copy `.env.example` to `.env.local` and fill in local values. Environment variables
-override the file. Keep the file private. Run `uv run agent probe` for a status-only,
-read-only connectivity report. It neither creates resources nor issues database leases.
+Use the [setup runbook](setup.md) for browser/database preparation. Create a private file
+with `agent setup init --mode user-jwt` only for a fresh baseline, or supply environment
+variables directly. Existing installations retain their route and enrollment. Environment
+variables override `.env.local`; [.env.example](../.env.example) lists optional inputs.
+Use `agent setup check --recipe workspace-read` for non-effectful local readiness and
+`--network` for explicit public endpoint checks. The advanced `agent probe` command can
+issue an administrative API token and save private device inventory when configured;
+it requires authorization for those effects and is not the browser setup preflight.
 
 | Setting | Purpose |
 | --- | --- |
 | `MODEL` | Pydantic AI model ID, such as `google-gla:gemini-3.8-flash` |
-| `GOOGLE_API_KEY` / provider environment | Model credentials |
+| `GOOGLE_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | Selected provider key from private file or environment; only the selected trusted constructor receives it |
 | `LOGFIRE_TOKEN` | Logfire project **write** API key; supplying this enables export |
 | `OAUTH_PROVIDER` | `verify` or `generic` |
 | `VERIFY_TENANT_URL` | Verify tenant; hostname or HTTPS URL |
@@ -49,6 +54,30 @@ Logfire instrumentation excludes model messages, tool arguments/results, binary 
 and model request parameters. HTTP headers/bodies are not instrumented. Change the write
 key to route telemetry to a different Logfire project. Do not put secrets in task text.
 
+## Recipe guidance and deployment roots
+
+`agent setup guide --recipe offline|workspace-read|workspace-analysis` provides read-only
+suggestions; use one literal recipe value. `--format json` selects SetupGuide v1. Existing
+`setup check` keeps SetupReport v1 JSON and exits 0/2/3. Omitted recipe is workspace-read.
+Guided checks include selected model/server/postgres packages, selected profile and workspace
+TIMEOUT_SECONDS 1–180; analysis alone also requires sandbox. Readiness is local, not proof of
+sign-in, grants or cleanup. Unknown model integrations remain direct-runtime compatible and
+require integration review for guided setup.
+
+Private model credentials load from `.env.local` or environment (environment wins):
+`google-gla:` uses `GOOGLE_API_KEY`; `openai:` and `openai-chat:` use `OPENAI_API_KEY` with
+chat, `openai-responses:` uses that key with responses; `anthropic:` uses `ANTHROPIC_API_KEY`.
+Only the selected trusted provider receives its key. Never put credential values in commands,
+chat or tracked examples. Install its optional extra together with every other selected extra;
+use `uv run --no-sync` for follow-up commands.
+
+Stateful CLI operations refuse nested/linked Git roots or failed discovery before private
+configuration access. Run from the canonical checkout/worktree root. Installed use outside Git
+anchors to cwd. Stateful commands require Git for bounded discovery even outside a worktree;
+help, demo, sandbox demo and offline recipe guide/check remain configuration-free. No enrollment schema or file relocation is introduced: preserve aliases,
+authentication defaults and existing recovery/migration rules. Independent deployments use
+independent directories; never copy state or reset holds to make a check pass.
+
 ## Authenticated runs and automation
 
 Authenticated execution requires a signed access JWT with issuer, subject, audience,
@@ -58,9 +87,9 @@ come from trusted provider discovery. Human identity never comes from prompt fie
 The CLI and bearer service accept an externally acquired user access token. The browser workspace performs its own login and keeps session credentials in server memory.
 
 ```sh
-uv run agent run --task 'Summarize POC-1' --profile parent
-uv run agent batch --input requests.jsonl
-uv run agent serve
+uv run --no-sync agent run --task 'Summarize POC-1' --profile parent
+uv run --no-sync agent batch --input requests.jsonl
+uv run --no-sync agent serve
 ```
 
 JSONL input contains one request per line:
@@ -106,8 +135,10 @@ optionally `database-read`. The reserved child definition remains read-only.
 Unknown capabilities and overprivileged child configurations are rejected at startup.
 
 Add new adapters behind existing tool contracts or new reviewed capability factories.
-Models cannot choose policy roles, endpoints, database roles, SQL, credentials, or
-approval decisions. Current ticket data is synthetic; live Jira is not implemented.
+Models cannot choose policy roles, endpoints, database roles, credentials, or approval
+decisions. The fixed reader uses trusted SQL; `database-analyst` can propose only the closed
+SELECT forms admitted by the [Monty query contract](#monty-query-contract) and compiled
+into trusted parameterized SQL. Current ticket data is synthetic; live Jira is not implemented.
 Parent and child are logical agents inside one process and share workload trust.
 Separate objects and registry entries do not create independent attestation.
 
@@ -123,7 +154,7 @@ Reading registration-profile configuration also needs `readAuthenticatorsConfig`
 that permission is optional and is not needed for an already enrolled phone.
 
 ```sh
-uv run agent push-demo
+uv run --no-sync agent push-demo
 ```
 
 This isolated test selects exactly one active phone and its validated user-presence
@@ -166,11 +197,11 @@ Teams notifications and customer closeout are not implemented in this baseline.
 
 ## Database provisioning and local fixtures
 
-Local PostgreSQL can run in OrbStack with `uv run python scripts/local_lab.py up`
+Local PostgreSQL can run in OrbStack with `uv run --no-sync python scripts/local_lab.py up`
 after installing the `postgres` extra. It binds to `127.0.0.1:55432`, creates
 synthetic records, and verifies TLS using a generated local CA. Bootstrap
 credentials and certificates stay under ignored `.local/`. Use
-`uv run python scripts/local_lab.py down` to stop it and retain its data volume.
+`uv run --no-sync python scripts/local_lab.py down` to stop it and retain its data volume.
 This helper runs PostgreSQL only; Vault remains the existing HCP instance.
 HCP Vault needs an approved network route to PostgreSQL before its database
 secrets engine can issue credentials. Set `DATABASE_SSLROOTCERT` to
@@ -186,7 +217,7 @@ credentials.
 
 To provision and validate PostgreSQL using an existing Vault, install the
 `postgres` extra, provide a local `SUPABASE_DB_URI` and trusted CA path, and run
-`uv run --extra postgres python scripts/provision_database.py`.
+`uv run --no-sync python scripts/provision_database.py`.
 The helper creates its marked synthetic table with row-level security, a
 Vault database connection and a SELECT-only two-minute credential role.
 It verifies read access, write denial, restricted Vault paths and revocation
@@ -211,9 +242,9 @@ replay, action mutation, failed cleanup and cancellation through the trusted run
 They use no customer credentials, ambient exporter or network. No additional dependency is needed.
 
 ~~~sh
-uv run agent validate list
-uv run agent validate run
-uv run agent validate run --scenario policy-denial --scenario approval-replay
+uv run --no-sync agent validate list
+uv run --no-sync agent validate run
+uv run --no-sync agent validate run --scenario policy-denial --scenario approval-replay
 ~~~
 
 Each run creates a unique owner-only directory beneath the current project's ignored
@@ -232,9 +263,9 @@ substitute simulated services or administrative credentials. Phone validation re
 separate explicit scenario and a witnessed decision:
 
 ~~~sh
-uv run agent validate run --suite live-database --mode live
-uv run agent validate run --suite live-phone --scenario phone-approved --mode live --interactive
-uv run agent validate run --suite live-phone --scenario phone-denied --mode live --interactive
+uv run --no-sync agent validate run --suite live-database --mode live
+uv run --no-sync agent validate run --suite live-phone --scenario phone-approved --mode live --interactive
+uv run --no-sync agent validate run --suite live-phone --scenario phone-denied --mode live --interactive
 ~~~
 
 `LOGFIRE_TOKEN` enables the optional filtered OTLP pipeline. Install the existing `logfire`
@@ -254,9 +285,9 @@ linkage and incompatible Vault lease HMAC contexts remain blocked. A verified ph
 is labeled transaction response evidence, separately from Events audit evidence.
 
 ~~~sh
-uv run agent validate import --run RUN_UUID --source vault --input .local/input/vault.jsonl --manifest .local/input/vault-manifest.json
-uv run agent validate report --run RUN_UUID
-uv run agent validate review --run RUN_UUID --criterion UC1-05 --decision pass --review-file .local/input/review.json
+uv run --no-sync agent validate import --run RUN_UUID --source vault --input .local/input/vault.jsonl --manifest .local/input/vault-manifest.json
+uv run --no-sync agent validate report --run RUN_UUID
+uv run --no-sync agent validate review --run RUN_UUID --criterion UC1-05 --decision pass --review-file .local/input/review.json
 ~~~
 
 Use the criterion's current `evidence_revision` from the report as `expected_revision` in the
@@ -279,8 +310,8 @@ Readiness checks selected live-case configuration without network calls, token v
 phone prompts or persisted evidence:
 
 ~~~sh
-uv run agent validate ready --suite live-database
-uv run agent validate ready --suite live-phone --scenario phone-approved
+uv run --no-sync agent validate ready --suite live-database
+uv run --no-sync agent validate ready --suite live-phone --scenario phone-approved
 ~~~
 
 Execution and evidence readiness are separate. `configured` means local configuration is
@@ -299,8 +330,8 @@ No additional environment variables or read tokens are required; export access s
 Create a private immutable closeout from one to four explicit live runs, then inspect it:
 
 ~~~sh
-uv run agent validate closeout --run DATABASE_RUN_UUID --run APPROVED_RUN_UUID --run DENIED_RUN_UUID
-uv run agent validate closeout --closeout SNAPSHOT_UUID
+uv run --no-sync agent validate closeout --run DATABASE_RUN_UUID --run APPROVED_RUN_UUID --run DENIED_RUN_UUID
+uv run --no-sync agent validate closeout --closeout SNAPSHOT_UUID
 ~~~
 
 Closeout contains four fixed case slots, operational and evidence outcomes, and all fifteen
@@ -323,19 +354,28 @@ real database, witnessed phone, source-review and delivery gates.
 
 ## Browser workspace
 
-1. Install the integrations you use:
-   **uv sync --locked --extra server --extra google --extra postgres --group dev**.
-2. In .env.local, retain your issuer/discovery, OAUTH_AUDIENCE, actor and model settings.
-   Set LOGIN_CLIENT_ID and LOGIN_CLIENT_SECRET to a separate confidential OIDC
-   application. Set LOGIN_SCOPES to openid plus granted task scopes; add
-   offline_access if the provider supports refresh tokens.
-3. Run **uv run agent workspace** (or **--port 8002** if the port is occupied).
-   Register the **exact** printed callback, for example
-   http://127.0.0.1:8000/auth/callback, in that login application.
-4. Open the printed local URL and select **Sign in**. For the database example,
-   choose **database-reader**, enter **Read database record 1**, and select **Run**.
-5. Inspect the status, result and credential cleanup. Keep the job/request/run IDs
-   when correlating private adapter evidence; they contain no identity claims.
+Use the [fresh/repeat runbook](setup.md). The browser baseline uses OIDC, Vault and
+PostgreSQL plus the selected model integration; `LOGIN_*` alone is insufficient.
+
+1. Install the complete selected environment, for example
+   `uv sync --locked --no-dev --extra server --extra postgres --extra google`.
+   Replace `google` with `openai` or `anthropic` only when selected; analysis adds `sandbox`.
+2. Supply issuer/discovery/audience, confidential login client, Vault/database/trust and
+   matching model settings privately. Fresh `user-jwt` uses `LOGIN_SCOPES="openid database:read"`
+   without a separate actor client. Enrolled `delegated-exchange` keeps its additional
+   actor/client/audience inputs. Add `offline_access` only when granted and supported.
+3. Run `uv run --no-sync agent setup guide --recipe workspace-read`, then its local/network
+   checks and applicable preparation. Preserve existing drafts and journals. Present a newly
+   prepared response policy for explicit review before enrollment; skip enrolled phases.
+   For analysis, select `workspace-analysis` instead.
+4. Once local readiness exits 0, run `uv run --no-sync agent workspace`. The callback printed
+   by the process must match the login application's registered callback. For another port,
+   such as `--port 8002`, confirm that port's callback registration before launch.
+5. Open the actual loopback URL and select **Sign in**. For a fixed read, choose
+   **database-reader**, enter **Read database record 1**, and select **Run**.
+6. Inspect the observed result and exact credential cleanup, then `agent recover status`.
+   Local readiness, sign-in, allowed read, intentional denial and cleanup are separate results.
+   Keep opaque job/request/run IDs only in private evidence when correlating adapter stages.
 
 The workspace binds only to 127.0.0.1, uses one worker and disables access logging.
 Host, Origin and CSRF checks protect mutations. It is intended for local use.
@@ -369,18 +409,18 @@ Reload retrieves retained results. It does not submit another task.
 | Port unavailable | Choose --port 8002, register the newly printed callback, then open that URL. |
 | Sign-in cannot be verified | Check issuer, login application callback, resource audience and granted scopes; start a fresh Sign in. |
 | Token lifetime too short | Increase provider access-token lifetime or reduce TIMEOUT_SECONDS, then sign in again. |
-| Permission denied | Grant the required resource scope to this identity and choose the correct profile. |
-| Database unavailable | Check actor exchange, Vault read role, PostgreSQL TLS and database:read scope. |
+| Permission denied | Ask the identity/database administrator to verify the required resource scope and grants; choose the correct profile. |
+| Database unavailable | Check the selected JWT/exchange route, Vault read role, PostgreSQL TLS and database:read scope; use setup guidance and recovery status. |
 | Approval unconfirmed | Inspect the displayed cleanup and use Retry approval only when offered. |
-| Cleanup failed or unknown | Inspect and revoke the exact lease in private adapter evidence before restarting. |
+| Cleanup failed or unknown | Run agent recover status and follow its exact incident repair instructions; preserve uncertain evidence and state. |
 | Session capacity reached | Finish active work, sign out of an existing session, then sign in again. |
 
 Browser development checks use synthetic signed identity and Vault responses:
 
 ~~~sh
 uv sync --locked --extra server --group dev --group browser
-uv run --group browser playwright install webkit
-uv run --group browser pytest tests/browser -q
+uv run --no-sync playwright install webkit
+uv run --no-sync pytest tests/browser -q
 ~~~
 
 They establish software behavior; live vendor observations remain separate.
@@ -419,8 +459,8 @@ acquisition automatically, or test intentionally invalid database passwords.
 With complete live database settings, enroll future attempts once before using the database:
 
 ```sh
-uv run agent recover init
-uv run agent recover status
+uv run --no-sync agent recover init
+uv run --no-sync agent recover status
 ```
 
 These commands do not sign in or contact providers. Enrollment starts prospective
@@ -440,7 +480,7 @@ For a reported known-handle incident, an authorized operator supplies existing
 `VAULT_TOKEN` privately through the process environment or local configuration, then runs:
 
 ```sh
-uv run agent recover revoke --incident INCIDENT_UUID
+uv run --no-sync agent recover revoke --incident INCIDENT_UUID
 ```
 
 This sends exactly one synchronous revoke to the configured Vault instance and namespace.
@@ -469,7 +509,7 @@ export integrity before using a non-sensitive reviewer label. Never publish this
 The verifier follows [Vault's native pair IDs](https://developer.hashicorp.com/vault/docs/audit/schema).
 
 ```sh
-uv run agent recover import --incident INCIDENT_UUID --source .local/input/acquisition.json --reviewer operator
+uv run --no-sync agent recover import --incident INCIDENT_UUID --source .local/input/acquisition.json --reviewer operator
 # Include a second --source only for the matching completed sync-cleanup pair.
 ```
 
@@ -496,21 +536,21 @@ and CI do not apply these provider changes. Existing policies that reject sync f
 ## Incident containment
 
 Live execution requires explicit local enrollment. Stop the workspace first. For a new
-live database installation run `uv run agent recover init`; for an existing schema-1
-installation run `uv run agent recover migrate`. Migration preserves old attempts and
+live database installation run `uv run --no-sync agent recover init`; for an existing schema-1
+installation run `uv run --no-sync agent recover migrate`. Migration preserves old attempts and
 labels their ownership unknown; unresolved attempts still need operator repair.
 
-Run `uv run agent respond init --prepare`, review `.local/response/policy.json`, then run
-`uv run agent respond init`. The default local-only policy needs no relay or new environment
-variables. Restart the workspace and inspect `uv run agent respond status` for root IDs.
+Run `uv run --no-sync agent respond init --prepare`, review `.local/response/policy.json`, then run
+`uv run --no-sync agent respond init`. The default local-only policy needs no relay or new environment
+variables. Restart the workspace and inspect `uv run --no-sync agent respond status` for root IDs.
 
-In a separate terminal, start `uv run agent respond serve --port 8002`. To stop a particular
+In a separate terminal, start `uv run --no-sync agent respond serve --port 8002`. To stop a particular
 root, run:
 
 ```sh
-uv run agent respond submit --event-id operator-001 --occurred-at CURRENT_UTC --reason suspected_compromise --run ROOT_UUID
-uv run agent respond status --incident INCIDENT_UUID
-uv run agent respond reconcile --incident INCIDENT_UUID
+uv run --no-sync agent respond submit --event-id operator-001 --occurred-at CURRENT_UTC --reason suspected_compromise --run ROOT_UUID
+uv run --no-sync agent respond status --incident INCIDENT_UUID
+uv run --no-sync agent respond reconcile --incident INCIDENT_UUID
 ```
 
 Replace placeholders with the current UTC timestamp and IDs returned by private status.
@@ -526,7 +566,7 @@ To release a settled definition hold, inspect the current revision and supply **
 current incident:
 
 ```sh
-uv run agent respond release --definition DEFINITION_KEY --incident INCIDENT_UUID --revision CURRENT_REVISION --operator local-operator
+uv run --no-sync agent respond release --definition DEFINITION_KEY --incident INCIDENT_UUID --revision CURRENT_REVISION --operator local-operator
 ```
 
 Use the configured definition key from private status. Repeat `--incident` for overlapping holds. Release permits fresh roots; it never resumes
@@ -543,11 +583,11 @@ resources and the [configuration reference](configuration.md#provider-remediatio
 Stop the workspace and response service, preserve private state, and run:
 
 ```sh
-uv run agent respond migrate
-uv run agent respond providers prepare
-uv run agent respond providers readiness
-uv run agent respond providers status
-uv run agent respond providers enroll --revision N
+uv run --no-sync agent respond migrate
+uv run --no-sync agent respond providers prepare
+uv run --no-sync agent respond providers readiness
+uv run --no-sync agent respond providers status
+uv run --no-sync agent respond providers enroll --revision N
 ```
 
 Replace `N` with the current journal revision from status. Edit the generated private draft
@@ -566,8 +606,8 @@ must be no more than 300 seconds old or 30 seconds in the future.
 Read a safe report without contacting providers:
 
 ```sh
-uv run agent respond providers status --incident INCIDENT_UUID
-uv run agent respond providers reconcile --incident INCIDENT_UUID --revision N
+uv run --no-sync agent respond providers status --incident INCIDENT_UUID
+uv run --no-sync agent respond providers reconcile --incident INCIDENT_UUID --revision N
 ```
 
 Status makes no network calls. Reconcile reads exact metadata without reading credentials,
@@ -579,8 +619,8 @@ uncertain. A lost reply never causes automatic replay.
 Explicit recovery preserves predecessor history:
 
 ```sh
-uv run agent respond providers retry --action ACTION_UUID --revision N --operator REVIEWER
-uv run agent respond providers import --incident INCIDENT_UUID --file PRIVATE_OBSERVATION.json --revision N --operator REVIEWER
+uv run --no-sync agent respond providers retry --action ACTION_UUID --revision N --operator REVIEWER
+uv run --no-sync agent respond providers import --incident INCIDENT_UUID --file PRIVATE_OBSERVATION.json --revision N --operator REVIEWER
 ```
 
 Retry first reads current metadata where safe. If the change is already present it reconciles
@@ -605,7 +645,7 @@ For an authorized pre-event proof, place only the relevant credentials and peer 
 UUIDs into an owner-only JSON file matching `ProofInput`, then pipe it through stdin:
 
 ```sh
-uv run agent respond providers probe --root ROOT_UUID --revision N --scenario same_jwt --operator REVIEWER < PRIVATE_INPUT.json
+uv run --no-sync agent respond providers probe --root ROOT_UUID --revision N --scenario same_jwt --operator REVIEWER < PRIVATE_INPUT.json
 ```
 
 Do not put credentials in flags, command substitutions, chat or committed fixtures. Supported
@@ -655,8 +695,8 @@ Do not remove locks or private journals to bypass `workspace_busy` or `contained
 Start locally, without calling a provider:
 
 ```sh
-uv run agent govern prepare
-uv run agent govern status
+uv run --no-sync agent govern prepare
+uv run --no-sync agent govern status
 ```
 
 Edit `.local/governance/config.draft.json` and `secrets.json`, then run `configure` with
@@ -751,10 +791,10 @@ Every closed error includes a concrete setup, review or recheck action.
 Use the repository-only matrix after the contributor setup; no live credentials are needed:
 
 ```sh
-uv run python scripts/run_security_regression.py list
-uv run python scripts/run_security_regression.py run
-uv run python scripts/run_security_regression.py run --group F12-T4
-uv run python scripts/run_security_regression.py report --run UUID
+uv run --no-sync python scripts/run_security_regression.py list
+uv run --no-sync python scripts/run_security_regression.py run
+uv run --no-sync python scripts/run_security_regression.py run --group F12-T4
+uv run --no-sync python scripts/run_security_regression.py report --run UUID
 ```
 
 The run prints an opaque UUID, full/partial scope, current/historical/unknown freshness,
@@ -827,10 +867,10 @@ source bytes and explicit source-owner/extraction review. See the
 [typed fact fields and original proof matrix](../specs/010-poc-closeout/contracts/runtime.md#criterion-proof-matrix).
 
 ```sh
-uv run agent closeout prepare --inventory PRIVATE_INVENTORY_PATH
-uv run agent closeout guide --dossier DOSSIER_UUID --use-case UC1
-uv run agent closeout guide --dossier DOSSIER_UUID --experiment agent-repeat
-uv run agent closeout inspect --dossier DOSSIER_UUID
+uv run --no-sync agent closeout prepare --inventory PRIVATE_INVENTORY_PATH
+uv run --no-sync agent closeout guide --dossier DOSSIER_UUID --use-case UC1
+uv run --no-sync agent closeout guide --dossier DOSSIER_UUID --experiment agent-repeat
+uv run --no-sync agent closeout inspect --dossier DOSSIER_UUID
 ```
 
 `inspect` supplies current revision, environment/profile digests and opaque artifact hashes
@@ -842,13 +882,13 @@ quotas or erase failed demonstrations.
 After separately authorized demonstrations, capture complete existing evidence promptly:
 
 ```sh
-uv run agent closeout capture --dossier DOSSIER_UUID --revision N --kind validation --member RUN_UUID
-uv run agent closeout capture --dossier DOSSIER_UUID --revision N --kind response --member INCIDENT_UUID
-uv run agent closeout capture --dossier DOSSIER_UUID --revision N --kind governance --member CANDIDATE_UUID
-uv run agent closeout capture --dossier DOSSIER_UUID --revision N --kind regression --member REGRESSION_UUID
-uv run agent closeout import --dossier DOSSIER_UUID --revision N --manifest PRIVATE_MANIFEST_PATH --input PRIVATE_SOURCE_PATH
-uv run agent closeout assess --dossier DOSSIER_UUID --revision N
-uv run agent closeout report --dossier DOSSIER_UUID --assessment ASSESSMENT_UUID
+uv run --no-sync agent closeout capture --dossier DOSSIER_UUID --revision N --kind validation --member RUN_UUID
+uv run --no-sync agent closeout capture --dossier DOSSIER_UUID --revision N --kind response --member INCIDENT_UUID
+uv run --no-sync agent closeout capture --dossier DOSSIER_UUID --revision N --kind governance --member CANDIDATE_UUID
+uv run --no-sync agent closeout capture --dossier DOSSIER_UUID --revision N --kind regression --member REGRESSION_UUID
+uv run --no-sync agent closeout import --dossier DOSSIER_UUID --revision N --manifest PRIVATE_MANIFEST_PATH --input PRIVATE_SOURCE_PATH
+uv run --no-sync agent closeout assess --dossier DOSSIER_UUID --revision N
+uv run --no-sync agent closeout report --dossier DOSSIER_UUID --assessment ASSESSMENT_UUID
 ```
 
 Captured native member profiles additionally pin `member_environment_digest` to the original
@@ -883,8 +923,8 @@ owners. Import the pre-operation activity, entity/alias mapping and cohort befor
 ```
 
 ```sh
-uv run agent closeout experiment --dossier DOSSIER_UUID --revision N --input PRIVATE_EXPERIMENT_PATH
-uv run agent closeout measure --dossier DOSSIER_UUID --revision N --experiment EXPERIMENT_UUID --input PRIVATE_MEASUREMENT_PATH
+uv run --no-sync agent closeout experiment --dossier DOSSIER_UUID --revision N --input PRIVATE_EXPERIMENT_PATH
+uv run --no-sync agent closeout measure --dossier DOSSIER_UUID --revision N --experiment EXPERIMENT_UUID --input PRIVATE_MEASUREMENT_PATH
 ```
 
 Then externally perform exactly 100 successful distinct operations and collect complete
@@ -930,10 +970,10 @@ One person can attest several roles through separate records; names do not authe
   cannot create a meeting or an approval.
 
 ```sh
-uv run agent closeout review --dossier DOSSIER_UUID --revision N --input PRIVATE_REVIEW_PATH
-uv run agent closeout package --dossier DOSSIER_UUID --revision N --assessment ASSESSMENT_UUID
-uv run agent closeout handoff --dossier DOSSIER_UUID --revision N --package CORE_UUID
-uv run agent closeout report --dossier DOSSIER_UUID --package HANDOFF_UUID
+uv run --no-sync agent closeout review --dossier DOSSIER_UUID --revision N --input PRIVATE_REVIEW_PATH
+uv run --no-sync agent closeout package --dossier DOSSIER_UUID --revision N --assessment ASSESSMENT_UUID
+uv run --no-sync agent closeout handoff --dossier DOSSIER_UUID --revision N --package CORE_UUID
+uv run --no-sync agent closeout report --dossier DOSSIER_UUID --package HANDOFF_UUID
 ```
 
 The immutable core contains criteria, safe inventory/evidence summaries, counts, readout,
@@ -1005,7 +1045,7 @@ authorized and owns Vault/database cleanup. Caught callback errors latch failure
 be used to make later queries. Sign-out or cancellation stops admission, discards the worker
 and drains the owned database operation. Worker death alone does not establish revocation.
 
-`uv run agent sandbox demo` emits a metadata-only catalog result. Synthetic database effects
+`uv run --no-sync agent sandbox demo` emits a metadata-only catalog result. Synthetic database effects
 and actual sandbox execution are labelled separately. It includes successful filtering,
 grouping and percentages, remote-command attempts, unsupported SQL, limits and partial effects.
 Exit 0 means all assertions pass; 1 means failure, 2 names a missing optional dependency,
@@ -1016,26 +1056,3 @@ caching. At most ten terminal inspections are retained; old inspections can beco
 Code is rendered as inert text and purged on sign-out/expiry. It is not exported as native
 provider evidence. These demonstrations do not change the original fifteen acceptance criteria
 or four-case closeout requirements. Follow [setup](setup.md#monty-database-query-agent) for prompts.
-
-## Recipe guidance and deployment roots
-
-`agent setup guide --recipe offline|workspace-read|workspace-analysis` provides read-only
-suggestions; use one literal recipe value. `--format json` selects SetupGuide v1. Existing
-`setup check` keeps SetupReport v1 JSON and exits 0/2/3. Omitted recipe is workspace-read.
-Guided checks include selected model/server/postgres packages, selected profile and workspace
-TIMEOUT_SECONDS 1–180; analysis alone also requires sandbox. Readiness is local, not proof of
-sign-in, grants or cleanup. Unknown model integrations remain direct-runtime compatible and
-require integration review for guided setup.
-
-Private model credentials load from `.env.local` or environment (environment wins):
-`google-gla:` uses `GOOGLE_API_KEY`; `openai:` and `openai-chat:` use `OPENAI_API_KEY` with
-chat, `openai-responses:` uses that key with responses; `anthropic:` uses `ANTHROPIC_API_KEY`.
-Only the selected trusted provider receives its key. Never put credential values in commands,
-chat or tracked examples. Install its optional extra together with every other selected extra;
-use `uv run --no-sync` for follow-up commands.
-
-Stateful CLI operations refuse nested/linked Git roots or failed discovery before private
-configuration access. Run from the canonical checkout/worktree root. Installed use outside Git
-anchors to cwd. No enrollment schema or file relocation is introduced: preserve aliases,
-authentication defaults and existing recovery/migration rules. Independent deployments use
-independent directories; never copy state or reset holds to make a check pass.

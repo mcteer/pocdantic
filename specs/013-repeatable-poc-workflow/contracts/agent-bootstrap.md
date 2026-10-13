@@ -1,8 +1,7 @@
 # Agent Bootstrap Contract for AGENTS.md
 
-**Status**: Implementation instructions to incorporate into the maintained AGENTS.md and setup
-runbook. This planning artifact does not claim the proposed recipe/guide commands exist yet.
-The implementation task must update AGENTS.md itself; leaving this text only in specs is insufficient.
+**Status**: Implemented in PR #17 and incorporated into the maintained AGENTS.md/setup runbook.
+This contract records the bootstrap requirements; the maintained documents are the operator entry point.
 
 ## Purpose and two distinct operating modes
 
@@ -14,8 +13,8 @@ The implementation task must update AGENTS.md itself; leaving this text only in 
    profiles or authentication policy to make an installation pass. The base variables configure
    an existing compatible deployment; they do not authorize building remote infrastructure.
 
-A request ending at planning does not activate either implementation or live setup. The current
-session must stop after analyze so the user can switch models.
+A request ending at planning does not activate either implementation or live setup. The original planning
+session ended after analysis; implementation was subsequently authorized and merged.
 
 ## Recipe and base-input contract
 
