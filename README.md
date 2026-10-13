@@ -17,6 +17,13 @@ The demo and nine validation scenarios use synthetic data and make no network ca
 
 ## Configure a live run
 
+Choose a recipe: `offline` for rehearsal, `workspace-read` for signed-in fixed reads,
+or `workspace-analysis` for Monty analysis. `agent setup guide --recipe workspace-read`
+shows read-only next steps; `agent setup check` retains its JSON contract. Install the complete
+selected extras set with `uv sync --locked --no-dev --extra server --extra postgres --extra google`
+(replace Google with OpenAI or Anthropic when selected; analysis adds `--extra sandbox`).
+Use `uv run --no-sync agent ...` afterward to retain those extras.
+
 For a repeatable OIDC/Vault browser PoC, start with the [colleague setup guide](docs/setup.md).
 It includes a configuration worksheet and a prompt for agent-assisted setup;
 [AGENTS.md](AGENTS.md#help-someone-set-up-the-poc) defines the coding-agent workflow.

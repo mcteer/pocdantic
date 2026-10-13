@@ -39,21 +39,9 @@ from agent.workspace.sessions import SessionStore, digest
 
 def prerequisites(config, *, supplied_model=False):
     """List missing or unsupported workspace settings without making provider requests."""
-    missing = [
-        name
-        for name in ("LOGIN_CLIENT_ID", "LOGIN_CLIENT_SECRET", "OAUTH_AUDIENCE")
-        if not getattr(config, name.lower())
-    ]
-    if not (
-        config.oauth_discovery_url
-        or (config.oauth_provider == "verify" and config.verify_tenant_url)
-    ):
-        missing.append("OAUTH_DISCOVERY_URL")
-    if not 1 <= config.timeout_seconds <= 180:
-        missing.append("TIMEOUT_SECONDS")
-    if not supplied_model and config.model.startswith("google-gla:") and not config.google_api_key:
-        missing.append("GOOGLE_API_KEY")
-    return missing
+    from agent.setup.prerequisites import common
+
+    return list(common(config, supplied_model=supplied_model))
 
 
 def create_workspace_app(

@@ -1016,3 +1016,26 @@ caching. At most ten terminal inspections are retained; old inspections can beco
 Code is rendered as inert text and purged on sign-out/expiry. It is not exported as native
 provider evidence. These demonstrations do not change the original fifteen acceptance criteria
 or four-case closeout requirements. Follow [setup](setup.md#monty-database-query-agent) for prompts.
+
+## Recipe guidance and deployment roots
+
+`agent setup guide --recipe offline|workspace-read|workspace-analysis` provides read-only
+suggestions; use one literal recipe value. `--format json` selects SetupGuide v1. Existing
+`setup check` keeps SetupReport v1 JSON and exits 0/2/3. Omitted recipe is workspace-read.
+Guided checks include selected model/server/postgres packages, selected profile and workspace
+TIMEOUT_SECONDS 1–180; analysis alone also requires sandbox. Readiness is local, not proof of
+sign-in, grants or cleanup. Unknown model integrations remain direct-runtime compatible and
+require integration review for guided setup.
+
+Private model credentials load from `.env.local` or environment (environment wins):
+`google-gla:` uses `GOOGLE_API_KEY`; `openai:` and `openai-chat:` use `OPENAI_API_KEY` with
+chat, `openai-responses:` uses that key with responses; `anthropic:` uses `ANTHROPIC_API_KEY`.
+Only the selected trusted provider receives its key. Never put credential values in commands,
+chat or tracked examples. Install its optional extra together with every other selected extra;
+use `uv run --no-sync` for follow-up commands.
+
+Stateful CLI operations refuse nested/linked Git roots or failed discovery before private
+configuration access. Run from the canonical checkout/worktree root. Installed use outside Git
+anchors to cwd. No enrollment schema or file relocation is introduced: preserve aliases,
+authentication defaults and existing recovery/migration rules. Independent deployments use
+independent directories; never copy state or reset holds to make a check pass.

@@ -1,0 +1,17 @@
+[
+  {"criterion":"UC1-01","status":"blocked","owner":"integration owner","reason":"Workflow planning does not establish native secret-isolation acceptance; live evidence and review are required.","source":"none","references":[]},
+  {"criterion":"UC1-02","status":"blocked","owner":"integration owner","reason":"Portable setup does not establish native delegated authority; live evidence and review are required.","source":"none","references":[]},
+  {"criterion":"UC1-03","status":"blocked","owner":"integration owner","reason":"Readiness does not establish database grants; live enforcement evidence and review are required.","source":"none","references":[]},
+  {"criterion":"UC1-04","status":"blocked","owner":"integration owner","reason":"Synthetic denial does not establish provider denial; live evidence and review are required.","source":"none","references":[]},
+  {"criterion":"UC1-05","status":"blocked","owner":"integration owner","reason":"Setup guidance does not establish native audit attribution; live evidence and review are required.","source":"none","references":[]},
+  {"criterion":"UC2-01","status":"blocked","owner":"integration owner","reason":"Offline delegation does not establish live parent-child enforcement; live evidence and review are required.","source":"none","references":[]},
+  {"criterion":"UC2-02","status":"blocked","owner":"integration owner","reason":"Phone approval is outside the baseline recipe; live evidence and review are required.","source":"none","references":[]},
+  {"criterion":"UC2-03","status":"blocked","owner":"integration owner","reason":"Local summaries do not establish customer audit delivery; live evidence and review are required.","source":"none","references":[]},
+  {"criterion":"UC3-01","status":"blocked","owner":"integration owner","reason":"Cleanup guidance does not establish external JWT invalidation; live evidence and review are required.","source":"none","references":[]},
+  {"criterion":"UC3-02","status":"blocked","owner":"integration owner","reason":"Native risk remediation is not demonstrated by setup; live evidence and review are required.","source":"none","references":[]},
+  {"criterion":"UC3-03","status":"blocked","owner":"integration owner","reason":"Native secret remediation is not demonstrated by setup; live evidence and review are required.","source":"none","references":[]},
+  {"criterion":"UC3-04","status":"blocked","owner":"integration owner","reason":"Native trigger timing is not demonstrated by workflow checks; live evidence and review are required.","source":"none","references":[]},
+  {"criterion":"UC4-01","status":"blocked","owner":"integration owner","reason":"Bootstrap instructions do not establish native workload attestation; live evidence and review are required.","source":"none","references":[]},
+  {"criterion":"UC4-02","status":"blocked","owner":"integration owner","reason":"Guided setup does not establish native entity ceiling enforcement; live evidence and review are required.","source":"none","references":[]},
+  {"criterion":"UC4-03","status":"blocked","owner":"integration owner","reason":"Guided setup does not establish native pre-registration discovery; live evidence and review are required.","source":"none","references":[]}
+]

@@ -133,3 +133,44 @@ def test_bad_profile_names_exact_repair_before_effects(tmp_path):
     assert report.exit_code == 2 and "PROFILES_FILE" in report.missing_settings
     assert report.observations[0].state == "configured"
     assert report.observations[1].state == "blocked"
+
+
+def test_guided_active_owner_and_held_response_cannot_pass(tmp_path):
+    """Guided check treats durable holds and active ownership as launch blockers."""
+    from agent.recovery.store import RecoveryStore
+    from agent.response.coordinator import Coordinator
+    from agent.response.store import ResponseStore
+    from tests.response_support import signal
+
+    settings, _, _, _, _ = deployment(tmp_path)
+    settings = configured(settings).model_copy(
+        update={"model": "openai:synthetic", "openai_api_key": SecretStr("synthetic")}
+    )
+    recovery = RecoveryStore(settings, project=tmp_path)
+    assert local_check(settings, project=tmp_path, recipe="workspace-read").exit_code == 0
+    with recovery.workspace():
+        assert local_check(settings, project=tmp_path, recipe="workspace-read").exit_code == 3
+    Coordinator(ResponseStore(settings, project=tmp_path)).submit(signal(settings))
+    report = local_check(settings, project=tmp_path, recipe="workspace-read")
+    assert report.exit_code == 3
+    assert report.observations[1].state == "blocked"
+
+
+def test_guided_unrelated_keys_and_bad_database_trust(tmp_path):
+    """Only the selected key matters, while unreadable database trust blocks launch."""
+    settings, _, _, _, _ = deployment(tmp_path)
+    settings = configured(settings).model_copy(
+        update={
+            "model": "openai-responses:synthetic",
+            "openai_api_key": SecretStr("synthetic"),
+            "google_api_key": None,
+            "anthropic_api_key": None,
+        }
+    )
+    report = local_check(settings, project=tmp_path, recipe="workspace-read")
+    assert report.exit_code == 0
+    settings = settings.model_copy(
+        update={"database_sslrootcert": str(tmp_path / "missing-ca.pem")}
+    )
+    report = local_check(settings, project=tmp_path, recipe="workspace-read")
+    assert report.exit_code == 2 and "DATABASE_SSLROOTCERT" in report.missing_settings

@@ -62,3 +62,42 @@ def test_empty_generated_template_reports_exact_missing_settings(tmp_path, monke
     assert "LOGIN_CLIENT_SECRET" in report.missing_settings
     assert "BEARER_TOKEN" not in report.missing_settings
     assert not (tmp_path / ".local").exists()
+
+
+async def test_offline_network_rejected_without_settings(monkeypatch, capsys):
+    """A forbidden offline network flag cannot load configuration or issue a request."""
+    from argparse import Namespace
+
+    from agent.settings import Settings
+    from agent.setup.commands import execute_setup
+
+    def denied(*args, **kwargs):
+        """Any settings construction would violate the offline entry-point boundary."""
+        pytest.fail("live settings loaded")
+
+    monkeypatch.setattr(Settings, "__init__", denied)
+    assert (
+        await execute_setup(Namespace(setup_command="check", recipe="offline", network=True)) == 2
+    )
+    assert "configuration_invalid" in capsys.readouterr().out
+
+
+async def test_invalid_guide_has_closed_v1_shape(tmp_path, monkeypatch, capsys):
+    """Invalid private input still yields a guide schema without raw validation values."""
+    import json
+    from argparse import Namespace
+
+    from agent.setup.commands import execute_setup
+    from agent.setup.models import SetupGuide
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env.local").write_text("TIMEOUT_SECONDS=synthetic-private-canary\n")
+    assert (
+        await execute_setup(
+            Namespace(setup_command="guide", recipe="workspace-read", format="json")
+        )
+        == 2
+    )
+    output = capsys.readouterr().out
+    assert "synthetic-private-canary" not in output
+    assert SetupGuide.model_validate(json.loads(output)).state == "needs-input"
