@@ -50,9 +50,22 @@ Ask only for missing names and their administrator. Never request secrets in cha
 | `VAULT_ADDR`, `VAULT_JWT_AUTH_ROLE` | Vault administrator: constrained human JWT role; mount defaults to `jwt` |
 | `VAULT_DATABASE_MOUNT`, `VAULT_DATABASE_ROLE` | Vault administrator: defaults `database`/`poc-readonly`, verify these exist |
 | `DATABASE_HOST`, `DATABASE_NAME`, `DATABASE_PORT` | Database administrator: SELECT-only role and record 1; port defaults to `5432` |
-| `MODEL`, selected `GOOGLE_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | Operator/model administrator: preserve Google default or select matching reviewed prefix |
+| `MODEL_MODE`, `MODEL`, `GATEWAY_REGION`, `GATEWAY_ROUTE`, `GATEWAY_MODELS`, `GATEWAY_API_KEY` | New live setup: Gateway administrator supplies the private key/region/route and reviewed native model; existing enrolled direct mode uses its selected provider key |
 | `OAUTH_CA_FILE`, `VAULT_CA_FILE`, `DATABASE_SSLROOTCERT`, `OAUTH_TRUSTED_HOSTS` | Respective administrators when custom trust is needed; no wildcard/bypass |
 | `VAULT_NAMESPACE`, `OAUTH_ACCESS_TOKEN_TYP` | Respective administrators when applicable; actual token type, default `at+jwt` |
+
+New live setups require `MODEL_MODE=gateway`, an explicit native model (`google-cloud:`,
+`openai-chat:`, `openai-responses:` or `anthropic:`) and exact allowlist. Do not translate a GLA
+model silently. Existing enrolled operators may explicitly retain `MODEL_MODE=direct`; identify
+it as lacking Gateway protection. In direct mode, the selected private key is
+`GOOGLE_API_KEY`, `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`; never request its value in chat. Missing mode requires a deliberate migration choice.
+Before private model work, obtain an expiring Gateway review of actual routing, blocking,
+spending/pricing and remote retention evidence. `agent gateway status` is read-only. Fixed
+`agent gateway probe --case CASE` uses synthetic inputs but may spend money and requires separate
+operational authorization; local setup scope does not authorize remote policy/billing changes.
+`agent gateway review --reviewer operator --decision reject` blocks later dispatch even with
+broken configuration/evidence. Approval requires complete exact live source evidence. Preserve
+all recovery/enrollment and holds; do not bypass denial by changing route, key or model.
 
 Offline needs none of these inputs. Delegated-exchange also needs its documented OAuth client,
 secret and Vault audience; do not silently switch routes. Browser setup requires neither a saved

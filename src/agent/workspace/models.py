@@ -10,6 +10,7 @@ from uuid import UUID
 
 from pydantic import AwareDatetime, ConfigDict, Field, field_validator, model_validator
 
+from agent.gateway.models import CODES as GATEWAY_CODES
 from agent.recovery.models import REASONS
 from agent.response.models import REASONS as RESPONSE_REASONS
 from agent.response.models import PublicSummary
@@ -55,6 +56,7 @@ ERRORS = {
 }
 
 
+ERRORS.update({code: ("model", "inspect_configuration") for code in GATEWAY_CODES})
 ERRORS.update(REASONS)
 ERRORS.update({reason: ("containment", action) for reason, action in RESPONSE_REASONS.items()})
 
@@ -123,6 +125,13 @@ class LoginStart(Versioned):
 
 
 class SessionView(Versioned):
+    model_control: Literal[
+        "synthetic",
+        "protected-reviewed",
+        "protected-operator-managed",
+        "review-required",
+        "legacy-direct",
+    ] = "synthetic"
     signed_in: bool
     requires_sign_in: bool
     csrf_token: str

@@ -61,7 +61,7 @@ def load_definitions(path: str) -> dict[str, AgentDefinition]:
 
 
 def build_agent(
-    definition: AgentDefinition, model: str | Model, telemetry=None
+    definition: AgentDefinition, model: str | Model, telemetry=None, gateway=None
 ) -> Agent[Dependencies, AgentOutput]:
     """Construct a profile’s Pydantic AI agent with fixed tools, output schema, and limits."""
     return Agent(
@@ -77,6 +77,7 @@ def build_agent(
             *(CAPABILITY_FACTORIES[name]() for name in definition.capabilities),
             safe_instrumentation(telemetry),
             ContainmentCapability(),
+            *([gateway] if gateway is not None else []),
         ],
     )
 
@@ -117,9 +118,35 @@ class Runtime:
         refs = {}
         self.definition_ref = definition_ref or (lambda name: refs.setdefault(name, uuid4()))
         self.definitions = load_definitions(settings.profiles_file)
-        selected = model or settings.model
+        from pydantic_ai.models.function import FunctionModel
+        from pydantic_ai.models.test import TestModel
+
+        from .gateway.capability import GatewayCapability
+        from .gateway.config import bindings, route_policy
+        from .gateway.models import GatewayError
+        from .model_config import selected_model
+
+        synthetic = type(model) in (FunctionModel, TestModel)
+        selected = model if model is not None else selected_model(settings)
+        self.model_boundary = getattr(selected, "_agent_gateway", None)
+        if not synthetic:
+            policy = route_policy(settings)
+            if policy is not None:
+                if (
+                    self.model_boundary is None
+                    or self.model_boundary.policy != policy
+                    or self.model_boundary.expected != bindings(settings, policy)
+                ):
+                    raise GatewayError("gateway_model_denied")
+                self.model_boundary.check()
+                self.model_boundary.store.register(
+                    policy, self.model_boundary.expected["policy_digest"]
+                )
+            elif self.model_boundary is not None:
+                raise GatewayError("gateway_model_denied")
+        gateway = GatewayCapability(self.model_boundary) if self.model_boundary else None
         self.agents = {
-            key: build_agent(definition, selected, self.telemetry)
+            key: build_agent(definition, selected, self.telemetry, gateway)
             for key, definition in self.definitions.items()
         }
         self.policy, self.containment, self.audit = Policy(), Containment(), Audit()
@@ -127,8 +154,22 @@ class Runtime:
         self.database_reader = database_reader
         self.approval_backend = approval_backend
         self.sandbox_runs: dict = {}
+        self._closing = False
         self._active: dict = {}
         self._reserved: dict[UUID, RunContext] = {}
+
+    async def aclose(self):
+        """Close owned model connections only after all active runtime tasks have drained."""
+        self._closing = True
+        current = asyncio.current_task()
+        tasks = {task for _, task in self._active.values() if task is not current}
+        for run_id, (_, task) in tuple(self._active.items()):
+            if task is not current:
+                self.contain_run(run_id)
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        if self.model_boundary is not None:
+            await self.model_boundary.aclose()
 
     def reserve(self, request_id: UUID) -> RunContext:
         """Allocate a run ID before asynchronous admission, binding it to the request ID."""
@@ -255,6 +296,8 @@ class Runtime:
             "correlation_id": str(request.request_id),
         }
         try:
+            if self._closing:
+                raise SecurityError("contained")
             if principal.expires_at is not None and principal.expires_at <= time.time():
                 raise SecurityError("identity_expired")
             if request.profile not in self.agents:

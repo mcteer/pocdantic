@@ -7,6 +7,19 @@
 const $ = id => document.getElementById(id);
 const terminal = new Set(['completed', 'denied', 'failed', 'interrupted']);
 const messages = {
+  model_mode_required: 'Select Gateway or explicit legacy direct mode in private configuration.',
+  gateway_configuration_invalid: 'Ask the operator to repair the Gateway configuration.',
+  gateway_review_required: 'Gateway controls require current operator review.',
+  gateway_model_denied: 'The selected model is not approved for this deployment.',
+  gateway_payload_unsupported: 'This model request uses unsupported content or tools.',
+  gateway_guardrail_denied: 'Credential protection blocked the model request. Ask the Gateway administrator to review it.',
+  gateway_budget_denied: 'Gateway spending controls blocked the request. Ask its administrator to review the limit.',
+  gateway_auth_denied: 'Gateway authentication failed. Ask the operator to inspect the private key.',
+  gateway_rate_limited: 'Gateway throttled this request. No automatic retry occurred.',
+  gateway_request_failed: 'The model request failed. Inspect the result before starting new work.',
+  gateway_dispatch_unknown: 'Model completion and billing are unknown. Do not replay this request.',
+  gateway_observation_failed: 'Model observation storage failed. Ask the operator to repair it.',
+
   sign_in_required: 'Select Sign in again.',
   login_cancelled: 'Sign-in was cancelled. Select Sign in to try again.',
   login_invalid: 'Sign-in could not be verified. Start a new sign-in.',
@@ -124,6 +137,13 @@ async function loadSession() {
   }));
   $('issues').textContent = session.configuration_issues.length ?
     'Optional integrations need configuration: ' + session.configuration_issues.join(', ') : '';
+  const modelControl = {
+    'legacy-direct': 'Model connection: direct provider; Gateway controls are absent.',
+    'protected-reviewed': 'Model connection: Gateway controls reviewed.',
+    'protected-operator-managed': 'Model connection: Gateway protections reviewed; spending and service retention are operator-managed.',
+    'review-required': 'Model connection: Gateway review required.'
+  }[session.model_control];
+  if (modelControl) $('issues').textContent += ' ' + modelControl;
   if (session.login_error) showError(session.login_error);
   const capabilities = await api('/workspace/capabilities');
   $('capabilities').replaceChildren(...capabilities.observations.map(item => {

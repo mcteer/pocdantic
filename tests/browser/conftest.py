@@ -36,6 +36,10 @@ def workspace_browser(workspace_settings, identity_provider, request, monkeypatc
 
     def respond(messages, info):
         counts["model"] += 1
+        if mode == "gateway-denied":
+            from agent.gateway.models import GatewayError
+
+            raise GatewayError("gateway_guardrail_denied")
         returns = sum(
             isinstance(part, ToolReturnPart) for message in messages for part in message.parts
         )
@@ -98,6 +102,8 @@ def workspace_browser(workspace_settings, identity_provider, request, monkeypatc
         }
     )
 
+    if options.get("legacy_direct"):
+        config = config.model_copy(update={"model_mode": "direct"})
     if options.get("portable"):
         config = config.model_copy(
             update={

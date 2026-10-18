@@ -159,6 +159,7 @@ Owner = Literal[
     "database-administrator",
     "integration-owner",
     "human-reviewer",
+    "gateway-administrator",
 ]
 ActionId = Literal[
     "use-root",
@@ -178,6 +179,7 @@ ActionId = Literal[
     "check-cleanup",
     "run-offline",
     "integration-review",
+    "gateway-review",
 ]
 CommandId = Literal[
     "offline",
@@ -224,6 +226,11 @@ SETTING_NAMES = frozenset(
         "PROFILES_FILE",
         "TIMEOUT_SECONDS",
         "MODEL",
+        "MODEL_MODE",
+        "GATEWAY_REGION",
+        "GATEWAY_ROUTE",
+        "GATEWAY_MODELS",
+        "GATEWAY_API_KEY",
         "GOOGLE_API_KEY",
         "OPENAI_API_KEY",
         "ANTHROPIC_API_KEY",
@@ -282,6 +289,7 @@ class PrerequisiteFinding(BaseModel):
         "response-state",
         "policy-review",
         "local-ready",
+        "gateway-review",
     ]
     boundary: Literal[
         "project",

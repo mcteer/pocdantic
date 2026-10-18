@@ -136,6 +136,9 @@ def create_workspace_app(
                 timer.cancel()
                 await asyncio.gather(timer, return_exceptions=True)
                 await store.shutdown()
+                await runtime.aclose()
+                telemetry.flush()
+                telemetry.shutdown()
                 await diagnostics.shutdown()
                 recovery_store.release_workspace()
 
@@ -280,7 +283,21 @@ def create_workspace_app(
                 issues.append(setting)
         if not config.verify_push_enabled:
             issues.append("VERIFY_PUSH_ENABLED")
+        control = "synthetic"
+        if runtime.model_boundary is not None:
+            try:
+                review = runtime.model_boundary.check()
+                control = (
+                    "protected-operator-managed"
+                    if review.administration == "operator-owned"
+                    else "protected-reviewed"
+                )
+            except SecurityError:
+                control = "review-required"
+        elif config.model_mode == "direct":
+            control = "legacy-direct"
         view = SessionView(
+            model_control=control,
             signed_in=signed,
             requires_sign_in=not signed,
             csrf_token=current.csrf,

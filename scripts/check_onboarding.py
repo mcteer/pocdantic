@@ -26,6 +26,12 @@ CASES = {
         "tests/test_model_configuration.py",
         "tests/test_setup_walkthrough.py",
         "tests/test_setup_commands.py",
+        "tests/test_gateway_configuration.py",
+        "tests/test_gateway_transport.py",
+        "tests/test_gateway_controls.py",
+        "tests/test_gateway_privacy.py",
+        "tests/test_gateway_review.py",
+        "tests/test_gateway_probes.py",
     ),
 }
 
@@ -76,7 +82,8 @@ for provider, prefix, package, key in (
     ('anthropic', 'anthropic', 'anthropic', 'ANTHROPIC_API_KEY'),
 ):
     path = Path('.env.local')
-    path.write_text('MODEL=' + prefix + ':synthetic\n' + key + '=synthetic-canary\n')
+    path.write_text('MODEL_MODE=direct\nMODEL=' + prefix + ':synthetic\n'
+                    + key + '=synthetic-canary\n')
     settings = Settings()
     assert getattr(settings, key.lower()).get_secret_value() == 'synthetic-canary'
     assert 'synthetic-canary' not in repr(settings)
@@ -85,6 +92,17 @@ for provider, prefix, package, key in (
     assert 'synthetic-canary' not in result.model_dump_json()
     if package_present(package):
         assert selected_model(settings).model_name == 'synthetic'
+        # Exercise the real installed native Gateway constructor with no dispatch/state writes.
+        from agent.gateway.config import route_policy
+        from agent.model_config import gateway_model
+        import asyncio
+        gateway_prefix = 'google-cloud' if provider == 'google' else prefix
+        configured = Settings(_env_file=None, model_mode='gateway',
+            model=gateway_prefix+':synthetic', gateway_region='us', gateway_route='synthetic',
+            gateway_models=(gateway_prefix+':synthetic',), gateway_api_key='synthetic-key')
+        model = gateway_model(configured, route_policy(configured))
+        assert model.model_name == 'synthetic'
+        asyncio.run(model._agent_gateway.aclose())
     else:
         names = {name for finding in result.findings for name in finding.setting_names}
         assert provider.upper() + '_EXTRA' in names

@@ -15,6 +15,7 @@ def configured(settings):
     """Supply browser-only prerequisites using synthetic values."""
     return settings.model_copy(
         update={
+            "model_mode": "direct",
             "model": "test",
             "login_scopes": "openid database:read",
             "login_client_id": "login",

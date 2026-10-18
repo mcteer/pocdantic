@@ -40,6 +40,37 @@ def common(
         missing.append("TIMEOUT_SECONDS")
     info = descriptor(settings.model)
     if not supplied_model:
+        if settings.model_mode is None:
+            missing.append("MODEL_MODE")
+        if settings.model_mode == "gateway":
+            from agent.gateway.config import route_policy
+            from agent.gateway.models import GatewayError
+
+            for name in ("GATEWAY_REGION", "GATEWAY_ROUTE", "GATEWAY_MODELS", "GATEWAY_API_KEY"):
+                if not supplied(settings, name):
+                    missing.append(name)
+            extras = {
+                "google-cloud": "google",
+                "openai-chat": "openai",
+                "openai-responses": "openai",
+                "anthropic": "anthropic",
+            }
+            prefix, sep, name = settings.model.partition(":")
+            extra = extras.get(prefix)
+            if not extra or not sep or not name:
+                missing.append("MODEL")
+            else:
+                probe = {"google": "google.genai", "openai": "openai", "anthropic": "anthropic"}[
+                    extra
+                ]
+                if not package_present(probe):
+                    missing.append(extra.upper() + "_EXTRA")
+            if not any(name.startswith("GATEWAY_") for name in missing):
+                try:
+                    route_policy(settings)
+                except GatewayError:
+                    missing.append("MODEL")
+            return tuple(dict.fromkeys(missing))
         if info:
             if not supplied(settings, info.credential_setting):
                 missing.append(info.credential_setting)

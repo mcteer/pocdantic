@@ -44,6 +44,12 @@ def initialize(mode, *, project=None):
             "next_action": "Edit existing .env.local privately, then run agent setup check.",
         }
     content = f"""# Private local PoC configuration. Never commit this file.
+MODEL_MODE=gateway
+MODEL=
+GATEWAY_REGION=
+GATEWAY_ROUTE=
+GATEWAY_MODELS=[]
+GATEWAY_API_KEY=
 DATABASE_AUTH_MODE={mode}
 OAUTH_PROVIDER=generic
 OAUTH_DISCOVERY_URL=

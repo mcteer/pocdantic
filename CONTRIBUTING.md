@@ -284,3 +284,18 @@ from the committed lock. CI covers wheel/sdist, base and selected-provider/analy
 Exit 0 is software pass, 1 failure, 2 unavailable prerequisites, 130 interruption. Raw outputs and
 private canaries never enter publication. Real two-provider/colleague timings and maintainer
 boundary review remain separate gates; synthetic success cannot complete them.
+
+## Gateway development and acceptance
+
+Feature 014 uses the pinned Slim native providers and an explicit HTTPX2 direct dependency
+(already transitive, BSD-3-Clause). It adds no Gateway extra; retain existing optional provider
+packages and legacy HTTPX adapters. `tests/test_gateway_*.py` exercise synthetic wire, controls,
+private reviews/probes and privacy; the guided onboarding and locked wheel/sdist checks exercise
+native Gateway construction without actual dispatch. New live setup requires explicit Gateway;
+existing enrolled direct mode is an explicit compatibility choice.
+
+Never enable a real Gateway organization, purchase/adjust limits, install remote protections or
+send billable acceptance probes in ordinary development/CI. Software tests do not establish
+vendor enforcement. Live routing, blocking, spend/pricing and service-retention evidence require
+separate administrator authorization and review. Rejection needs no current evidence; approval
+requires it, and expires within 24 hours. Read the feature contracts before boundary changes.

@@ -156,12 +156,43 @@ async def test_native_nested_runtime_and_lifecycle_canaries(monkeypatch):
     spans = exporter.get_finished_spans()
     assert spans and len({s.context.trace_id for s in spans}) == 1
     assert sum(s.parent is None for s in spans) == 1
-    assert sum(s.name == "agent" for s in spans) >= 2
+    assert sum(s.name == "invoke_agent" for s in spans) >= 2
+    agents = [s for s in spans if s.attributes.get("gen_ai.operation.name") == "invoke_agent"]
+    # The hosted Agents reader also requires a native invocation span name.
+    assert all(s.name.startswith("invoke_agent") for s in agents)
+    assert {s.attributes["gen_ai.agent.name"] for s in agents} == {"parent", "ticket-reader"}
+    assert all(s.attributes.get("gen_ai.agent.call.id") for s in agents)
+    assert all(
+        s.resource.attributes["deployment.environment.name"] == "unclassified" for s in spans
+    )
     assert {"run", "delegation", "policy"} <= {s.name for s in spans}
     assert b"PRIVATE" not in encode_spans(spans).SerializeToString()
     assert not telemetry.delivery.received
     assert telemetry.delivery.acknowledged == telemetry.delivery.attempted
     telemetry.shutdown()
+
+
+def test_agent_semantics_and_environment_are_closed():
+    """Keep Agents dashboard metadata while rejecting private dynamic labels."""
+    from agent.settings import synthetic_settings
+    from agent.telemetry import configure_telemetry, safe_attributes
+
+    assert safe_attributes(
+        {"gen_ai.operation.name": "invoke_agent", "gen_ai.agent.name": "parent"}
+    ) == {"gen_ai.operation.name": "invoke_agent", "gen_ai.agent.name": "parent"}
+    assert (
+        safe_attributes({"gen_ai.agent.name": "PRIVATE", "gen_ai.operation.name": "PRIVATE"}) == {}
+    )
+    settings = synthetic_settings()
+    settings.logfire_environment = "test"
+    telemetry = configure_telemetry(settings, exporter=InMemorySpanExporter())
+    with telemetry.provider.get_tracer("agent").start_as_current_span("run") as span:
+        assert span.native.resource.attributes["deployment.environment.name"] == "test"
+    telemetry.shutdown()
+    assert (
+        type(settings).model_validate({"LOGFIRE_ENVIRONMENT": "PRIVATE"}).logfire_environment
+        == "unclassified"
+    )
 
 
 async def test_native_denial_exception_cancellation_canaries():
@@ -265,3 +296,19 @@ def test_provider_telemetry_has_only_closed_codes():
     assert spans[0].attributes["provider_action"] == "block_registration"
     assert "PRIVATE" not in "\n".join(span.to_json() for span in spans)
     sdk.shutdown()
+
+
+@pytest.mark.parametrize("version", [1, 2])
+def test_current_write_token_versions_resolve_region_without_export(version):
+    """Versioned credentials use SDK region routing without hardcoding the old v1 format."""
+    from pydantic import SecretStr
+
+    from agent.settings import synthetic_settings
+    from agent.telemetry import configure_telemetry
+
+    settings = synthetic_settings()
+    settings.logfire_token = SecretStr("pylf_" + f"v{version}_us_synthetic")
+    telemetry = configure_telemetry(settings)
+    assert telemetry.sdk is not None
+    assert not telemetry.delivery.attempted
+    telemetry.shutdown()

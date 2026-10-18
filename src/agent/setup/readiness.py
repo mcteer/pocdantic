@@ -28,7 +28,7 @@ def required(settings, *, cli=False, denial=False):
         from agent.model_config import descriptor
 
         info = descriptor(settings.model)
-        if info:
+        if info and settings.model_mode != "gateway":
             names.append(info.credential_setting)
     if settings.database_auth_mode == "user-jwt":
         names.append("VAULT_JWT_AUTH_ROLE")
@@ -132,6 +132,21 @@ def local_check(settings, *, project=None, cli=False, denial=False, recipe=None)
         observation = observe(settings, project=project)
         blocked = blocked or observation.recovery_state != "clear"
         response_needed = response_needed or observation.response_state != "enrolled"
+    gateway_review_needed = False
+    if settings.model_mode == "gateway" and not missing:
+        from agent.gateway.config import bindings, route_policy
+        from agent.gateway.review import ReviewStore
+
+        try:
+            ReviewStore(Path(project).absolute()).admit(bindings(settings, route_policy(settings)))
+        except Exception:
+            gateway_review_needed = True
+    if settings.model_mode == "direct" and recipe is not None:
+        from .guidance import observe
+
+        state = observe(settings, project=project)
+        if state.recovery_state == "absent" or state.response_state == "absent":
+            missing.append("MODEL_MODE")
     observations = []
     for feature in ("baseline-sign-in", "baseline-database"):
         feature_missing = (
@@ -219,6 +234,12 @@ def local_check(settings, *, project=None, cli=False, denial=False, recipe=None)
             "Run agent recover init once if uninitialized; otherwise agent recover status "
             "and follow its incident instructions. Do not reset existing state."
         )
+    if gateway_review_needed:
+        instructions.append(
+            "Gateway administrator: review routing, blocking and telemetry privacy evidence; "
+            "record the administration scope explicitly; "
+            "run agent gateway status. No private-data activation before approval."
+        )
     if response_needed:
         instructions.append(
             "Run agent respond status. If uninitialized, run agent respond init --prepare "
@@ -240,7 +261,11 @@ def local_check(settings, *, project=None, cli=False, denial=False, recipe=None)
         observations=tuple(observations),
         missing_settings=tuple(missing),
         instructions=tuple(instructions),
-        exit_code=2 if missing or invalid else 3 if blocked or response_needed else 0,
+        exit_code=2
+        if missing or invalid
+        else 3
+        if blocked or response_needed or gateway_review_needed
+        else 0,
     )
 
 
