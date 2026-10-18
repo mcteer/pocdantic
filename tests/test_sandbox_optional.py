@@ -3,6 +3,22 @@
 from agent.sandbox import available
 
 
+def test_reviewed_versions_match_declared_pins(monkeypatch):
+    """Dependency updates must keep the fail-closed runtime check aligned with pins."""
+    import tomllib
+    from pathlib import Path
+
+    project = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
+    pins = dict(item.split("==") for item in project["project"]["optional-dependencies"]["sandbox"])
+    pins["pydantic-monty-client"] = pins["pydantic-monty"]
+    pins["pydantic-monty-runtime"] = pins["pydantic-monty"]
+    monkeypatch.setattr("importlib.metadata.version", pins.__getitem__)
+    monkeypatch.setattr("importlib.util.find_spec", lambda _: object())
+    assert available()
+    pins["sqlglot"] = "0.0.0"
+    assert not available()
+
+
 def test_missing_optional_distribution(monkeypatch):
     import importlib.metadata
 
