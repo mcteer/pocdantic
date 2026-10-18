@@ -31,6 +31,8 @@ def completed(page, origin):
     page.goto(origin)
     page.get_by_role("button", name="Sign in", exact=True).click()
     expect(page.locator("#session-status")).to_have_text("Signed in")
+    # Initial status content above the form must settle before pointer interactions.
+    expect(page.locator("#operations-status")).to_contain_text("Recovery:")
     page.locator("#task").fill("Read a ticket")
     page.locator("#profile").select_option("ticket-reader")
     page.get_by_role("button", name="Run", exact=True).click()
@@ -59,6 +61,8 @@ def test_root_hold_details_and_unrelated_admission(workspace_browser):
         other.goto(origin)
         other.get_by_role("button", name="Sign in", exact=True).click()
         expect(other.locator("#session-status")).to_have_text("Signed in")
+        # Initial status content above the form must settle before pointer interactions.
+        expect(other.locator("#operations-status")).to_contain_text("Recovery:")
         view = other.evaluate("fetch('/workspace/operations').then(r=>r.json())")
         assert str(item.incident_id) not in str(view)
         assert view["containment"]["incidents"] == []

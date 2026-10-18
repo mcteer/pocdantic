@@ -24,3 +24,5 @@ Use the next sequential number for a new record. Include status, date, context,
 decision, alternatives and consequences. Accepted decisions remain historical:
 supersede them with a new ADR and link both records rather than rewriting history.
 Never include credentials, customer design sources or raw live evidence.
+
+- [0011: Controlled model gateway](0011-controlled-model-gateway.md)

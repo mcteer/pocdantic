@@ -13,8 +13,9 @@ it requires authorization for those effects and is not the browser setup preflig
 
 | Setting | Purpose |
 | --- | --- |
-| `MODEL` | Pydantic AI model ID, such as `google-gla:gemini-3.8-flash` |
-| `GOOGLE_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | Selected provider key from private file or environment; only the selected trusted constructor receives it |
+| `MODEL_MODE`, `MODEL` | Gateway mode and exact native model; existing direct mode retains its aliases |
+| `GATEWAY_API_KEY` | Dedicated Gateway credential; see [Gateway setup](setup.md#model-gateway-controls) |
+| `GOOGLE_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | Selected key for explicit legacy direct mode only |
 | `LOGFIRE_TOKEN` | Logfire project **write** API key; supplying this enables export |
 | `OAUTH_PROVIDER` | `verify` or `generic` |
 | `VERIFY_TENANT_URL` | Verify tenant; hostname or HTTPS URL |
@@ -1056,3 +1057,29 @@ caching. At most ten terminal inspections are retained; old inspections can beco
 Code is rendered as inert text and purged on sign-out/expiry. It is not exported as native
 provider evidence. These demonstrations do not change the original fifteen acceptance criteria
 or four-case closeout requirements. Follow [setup](setup.md#monty-database-query-agent) for prompts.
+
+## Model use, control refusals and evidence
+
+`agent gateway status --format json` inspects local review state. The workspace labels reviewed
+Gateway, review-required and legacy direct modes. Private content-free attempts correlate runs,
+parents, definitions and opaque model/route references. Known usage is recorded; unavailable
+cost stays null/unknown. Prompts, tools, matched credentials, headers and raw errors stay out of
+public output and model telemetry. Native `invoke_agent` spans label the executing parent and
+subagents separately (for example `parent` and `ticket-reader`) and retain their nested trace
+relationship. The Agents list reflects actual runs in the selected project/time window, not
+installed profiles. Refresh the view after ingestion; a synthetic run demonstrates tracing only.
+`gateway status` reports unfinished attempts as unknown, including in-flight work; never replay
+them merely because a terminal record is absent.
+
+Gateway denials terminate without model repair, key/provider/model switches or tool replay.
+Specific reasons require exact reviewed native signatures; unknown schemas remain generic
+`gateway_request_failed`. Interrupted dispatch preserves unknown completion/billing and normal
+cleanup. Inspect recovery/cleanup before any new operation; do not replay an uncertain request.
+Existing token/request/time/delegation limits still apply.
+
+Credential probes cover structured provider/Gateway/Vault keys, bearer/JWT shape, private-key
+markers, credential-bearing database URIs and labelled password/client-secret assignments on
+five text surfaces. Actual enforcement depends on installed Block rules and live evidence.
+False positives require narrow rule review and affected probes. Arbitrary opaque passwords,
+encodings/fragments and media are outside the claim. Gateway receives inspected material;
+actual adapter credentials must still never enter model content. See [setup/rotation](setup.md#model-gateway-controls).

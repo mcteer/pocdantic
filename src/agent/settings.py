@@ -20,6 +20,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env.local",
+        hide_input_in_errors=True,
         extra="ignore",
         populate_by_name=True,
         alias_generator=AliasGenerator(
@@ -27,6 +28,35 @@ class Settings(BaseSettings):
         ),
     )
     model: str = "google-gla:gemini-3.8-flash"
+    model_mode: Literal["gateway", "direct"] | None = None
+    gateway_region: Literal["us", "eu"] | None = None
+    gateway_route: str | None = Field(default=None, repr=False)
+    gateway_models: tuple[str, ...] = ()
+    gateway_api_key: SecretStr | None = Field(
+        default=None,
+        repr=False,
+        validation_alias=AliasChoices("GATEWAY_API_KEY", "LOGFIRE_GATEWAY_API_KEY"),
+    )
+
+    @field_validator("gateway_region", mode="before")
+    @classmethod
+    def optional_gateway_region(cls, value):
+        """Treat an empty fresh template region as missing, never an implicit region."""
+        return None if value == "" else value
+
+    @model_validator(mode="before")
+    @classmethod
+    def gateway_aliases(cls, values):
+        """Refuse conflicting process aliases without echoing their private values."""
+        import os
+
+        left, right = os.environ.get("GATEWAY_API_KEY"), os.environ.get("LOGFIRE_GATEWAY_API_KEY")
+        if left and right and left != right:
+            from .security import SecurityError
+
+            raise SecurityError("gateway_configuration_invalid")
+        return values
+
     timeout_seconds: float = Field(default=45, gt=0, le=300)
     request_limit: int = Field(default=8, gt=0, le=50)
     tool_calls_limit: int = Field(default=12, gt=0, le=100)
@@ -126,6 +156,17 @@ class Settings(BaseSettings):
     )
     logfire_base_url: str | None = Field(default=None, repr=False)
     logfire_project: str | None = Field(default=None, min_length=1, max_length=128, repr=False)
+    logfire_environment: str = "unclassified"
+
+    @field_validator("logfire_environment", mode="before")
+    @classmethod
+    def telemetry_environment(cls, value):
+        """Export only fixed environment labels; never export arbitrary operator text."""
+        return (
+            value
+            if value in ("prd", "synth", "synthetic", "dev", "playtest", "test")
+            else "unclassified"
+        )
 
     @field_validator("logfire_base_url")
     @classmethod
@@ -205,6 +246,12 @@ def synthetic_settings() -> Settings:
 
     class SyntheticSettings(Settings):
         """Offline settings whose only source is explicitly supplied trusted defaults."""
+
+        @model_validator(mode="before")
+        @classmethod
+        def gateway_aliases(cls, values):
+            """Offline construction does not inspect ambient Gateway credential aliases."""
+            return values
 
         @classmethod
         def settings_customise_sources(

@@ -198,6 +198,7 @@ def test_cli_occupied_port_is_actionable_before_network(tmp_path):
         env.update(
             {
                 "MODEL": "test",
+                "MODEL_MODE": "direct",
                 "LOGIN_CLIENT_ID": "login",
                 "LOGIN_CLIENT_SECRET": "fixture",
                 "OAUTH_AUDIENCE": "resource",
@@ -266,3 +267,29 @@ async def test_operational_routes_require_bootstrap_and_csrf(workspace_settings,
                 headers=headers,
             )
         ).status_code == 400
+
+
+async def test_operator_managed_gateway_status_does_not_claim_spend_review(
+    workspace_settings, identity_provider
+):
+    """The workspace distinguishes verified protections from owner-managed administration."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    app = create_workspace_app(
+        workspace_settings,
+        model=TestModel(),
+        http_transport=httpx.MockTransport(identity_provider.handle),
+    )
+    app.state.runtime.model_boundary = SimpleNamespace(
+        check=lambda: SimpleNamespace(administration="operator-owned"), aclose=AsyncMock()
+    )
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1:8000"
+        ) as client,
+    ):
+        view = (await client.get("/workspace/session")).json()
+        assert view["model_control"] == "protected-operator-managed"
+        assert not view["signed_in"]

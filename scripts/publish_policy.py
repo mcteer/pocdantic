@@ -105,6 +105,11 @@ def private_content(name: str, data: bytes) -> bool:
         return True
     # Closeout identity/digest combinations remain private even under renaming or damage.
     for keys in (
+        (b"review_id", b"decision", b"credential_digest", b"evidence_digest"),
+        (b"attempt_id", b"route_ref", b"model_ref", b"protocol"),
+        (b"policy_digest", b"credential_digest", b"control_revision", b"controls"),
+        (b"gateway_policy_digest", b"route_policy"),
+        (b"gateway_probe", b"case_id", b"disposition", b"observed_at"),
         (b"dossier_id", b"inventory_id", b"records"),
         (b"assessment_id", b"environment_digest", b"members"),
         (b"measurement_id", b"experiment_id", b"dependencies"),

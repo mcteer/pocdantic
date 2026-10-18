@@ -81,6 +81,16 @@ def capture_context(settings):
             oauth_ca_digest=ca_digest(settings.oauth_ca_file),
             vault_ca_digest=ca_digest(settings.vault_ca_file),
         )
+    if settings.model_mode is not None:
+        selectors["model_route_digest"] = digest(
+            {
+                "mode": settings.model_mode,
+                "model": settings.model,
+                "region": settings.gateway_region,
+                "route": settings.gateway_route,
+                "allowed": settings.gateway_models,
+            }
+        )
     selectors["logfire_base_url"] = settings.logfire_base_url or "token-routed"
     for key, read in (
         ("profiles_digest", lambda: profile_bytes(settings.profiles_file)),

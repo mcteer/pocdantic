@@ -86,7 +86,7 @@ are not working credentials. The following table covers the browser baseline; se
 | `VAULT_JWT_AUTH_MOUNT`, `VAULT_JWT_AUTH_ROLE` | Existing JWT mount and constrained human role configured below. |
 | `VAULT_DATABASE_MOUNT`, `VAULT_DATABASE_ROLE` | Dedicated database secrets mount and SELECT-only credentials role. |
 | `DATABASE_HOST`, `DATABASE_NAME`, `DATABASE_PORT` | PostgreSQL host, database and port (default `5432`), from the database administrator. The database needs `poc_records(id, status)` and a test record with ID 1. |
-| `MODEL`, selected `GOOGLE_API_KEY`, `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` | Operator/model administrator supplies one matching key privately. Google is the default; use `google-gla:`, `openai:`/`openai-chat:`/`openai-responses:` or `anthropic:`. |
+| `MODEL_MODE`, `MODEL`, `GATEWAY_REGION`, `GATEWAY_ROUTE`, `GATEWAY_MODELS`, `GATEWAY_API_KEY` | New live setup requires Gateway and an explicitly reviewed native model/route. The Gateway administrator supplies the private key and controls; see [Gateway setup](#model-gateway-controls). Existing enrolled direct mode uses its selected provider key. |
 | `OAUTH_CA_FILE`, `VAULT_CA_FILE`, `DATABASE_SSLROOTCERT` | Local CA bundle paths where private trust is required; each service has independent trust settings. |
 | `OAUTH_TRUSTED_HOSTS` | Leave `[]` unless OIDC advertises endpoints on additional hosts; enter their exact DNS names as a JSON array. |
 
@@ -345,3 +345,65 @@ stop the workspace, resolve all prior attempts under its original configuration,
 `uv run --no-sync agent recover migrate` to preserve history and adopt the new profiles. Existing
 response/governance policies also pin their context; inspect their status and follow the
 existing-installation instructions above rather than deleting or resetting enrollment.
+
+## Model Gateway controls
+
+New live configuration chooses `MODEL_MODE=gateway`. Supply MODEL with one of `google-cloud:`,
+`openai-chat:`, `openai-responses:` or `anthropic:`, region (`us`/`eu`), reviewed endpoint slug,
+JSON `GATEWAY_MODELS` allowlist containing MODEL, and an explicit private `GATEWAY_API_KEY`.
+Install the complete server/postgres/provider extras together; analysis also needs sandbox.
+There is no Gateway extra. A GLA model name is not automatically a working cloud/Vertex choice.
+
+The Gateway administrator follows the [administration contract](../specs/014-gateway-guardrails/contracts/administration.md):
+select one provider without fallback, disable conversation telemetry and unreviewed optimizations,
+install Block for the credential inventory, set finite daily/monthly deployment-key USD limits,
+and require pricing data. Included limits are sufficient unless advanced controls are needed.
+Limits are soft and may overshoot under concurrent/in-flight work; verify BYOK accounting.
+
+Before private use, verify application and fresh Gateway traces exclude message content.
+Internal service retention/pre-block logging and spending review may remain explicitly
+operator-owned. That scope never claims those administrative controls passed; full attestation
+remains available. Gateway inspection supplements adapter secret isolation.
+
+After separately authorizing synthetic model spend, run fixed cases such as:
+
+```sh
+uv run --no-sync agent gateway status --format json
+uv run --no-sync agent gateway probe --case openai-chat_user_openai_key_block --format json
+uv run --no-sync agent gateway probe --case openai-chat_user_openai_key_allow --format json
+```
+
+Names use PROTOCOL_SURFACE_CLASS_ACTION: the four native protocols above; surfaces `user`,
+`instructions`, `history`, `tool_arguments`, `tool_result`; classes `openai_key`, `anthropic_key`,
+`google_key`, `gateway_key`, `vault_token`, `bearer_jwt`, `private_key`, `database_uri`, `password`,
+`client_secret`; actions `block`/`allow`. Run all 100 pairs for the selected protocol/model.
+There are no arbitrary prompts/files or executed tools. Unknown native errors remain unknown.
+
+Assemble an owner-only directory such as `.local/gateway/candidate/` containing `bundle.json`
+and source artifacts using the [private schema](../specs/014-gateway-guardrails/data-model.md#controlevidencebundle).
+Native mappings compare exact reviewed status/JSON-code pairs or bounded response fingerprints.
+Candidate mappings classify probes but do not activate normal work. Include all cases and final
+configuration bindings. For explicit `administration: "operator-owned"`, include exactly routing,
+protection and telemetry-privacy dispositions with no spend amounts; legacy/default reviewed
+scope requires all four controls and spending evidence. Never publish source artifacts or raw errors.
+
+```sh
+uv run --no-sync agent gateway review --evidence .local/gateway/candidate --reviewer operator --decision approve --valid-hours 24
+```
+
+Approval needs complete live evidence and matching files/key/configuration/implementation. It
+expires within 24 hours of observation. Reject immediately after remote changes or suspected
+exposure, even if settings/evidence are damaged:
+
+```sh
+uv run --no-sync agent gateway review --reviewer operator --decision reject
+```
+
+Rejection stops later dispatch; already-dispatched requests may finish or remain unknown. Rotate
+keys privately, restart and re-review. The application cannot continuously attest unreported
+remote drift. Repeat setup checks, then continue existing enrollment/sign-in/read/cleanup steps.
+Checks do not configure Gateway or spend model tokens. Fresh preparation refuses direct mode
+before enrollment. Existing enrolled operators may explicitly retain/roll back to direct mode;
+that deliberately removes Gateway controls and is never an automatic denial workaround.
+Preserve settings, enrollment and holds. Transport-only changes invalidate Gateway/validation
+context without changing credential-target recovery ownership.

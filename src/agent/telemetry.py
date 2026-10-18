@@ -54,6 +54,7 @@ SAFE_NAMES = frozenset(
         "response",
         "governance",
         "agent",
+        "invoke_agent",
         "model",
         "tool",
     )
@@ -72,6 +73,8 @@ UUID_ATTRIBUTES = frozenset(
         "agent_ref",
         "workload_ref",
         "operation_ref",
+        "gateway_attempt_id",
+        "gen_ai.agent.call.id",
         "lease_ref",
         "approval_ref",
     )
@@ -89,6 +92,15 @@ COUNTS = frozenset(
     )
 )
 ENUMS = {
+    "gen_ai.operation.name": frozenset(
+        ("invoke_agent", "chat", "generate_content", "execute_tool")
+    ),
+    "gen_ai.agent.name": frozenset(
+        ("parent", "ticket-reader", "database-reader", "database-analyst")
+    ),
+    "gateway_stage": frozenset(
+        ("admitted", "dispatched", "completed", "denied", "failed", "cancelled", "unknown")
+    ),
     "gov_operation": frozenset(
         (
             "readiness",
@@ -212,8 +224,8 @@ def safe_name(name):
         return name
     # Native operation classes are preserved, never dynamic tool/agent/model names.
     if isinstance(name, str):
-        if name.startswith("agent run"):
-            return "agent"
+        if name.startswith(("agent run", "invoke_agent")):
+            return "invoke_agent"
         if name.startswith("chat "):
             return "model"
         if name.startswith("running tool"):
@@ -571,7 +583,7 @@ class Telemetry:
     delivery: Delivery = field(default_factory=Delivery)
 
     def flush(self):
-        """Flush pending metadata within the bounded deadline and return delivery success."""
+        """Return bounded queue-flush completion; inspect delivery separately for receipt."""
         if self.sdk is None:
             return True
         try:
@@ -606,7 +618,14 @@ def configure_telemetry(settings: Settings, *, exporter=None, private_sink=None)
     delivery = Delivery(state="disabled" if exporter is not None else "attempted")
 
     sdk = SDKProvider(
-        resource=Resource({"service.name": "agent"}), sampler=ALWAYS_ON, shutdown_on_exit=False
+        resource=Resource(
+            {
+                "service.name": "agent",
+                "deployment.environment.name": settings.logfire_environment,
+            }
+        ),
+        sampler=ALWAYS_ON,
+        shutdown_on_exit=False,
     )
     if exporter is not None:
         sdk.add_span_processor(SimpleSpanProcessor(tracked_exporter(exporter, delivery)))
@@ -617,7 +636,7 @@ def configure_telemetry(settings: Settings, *, exporter=None, private_sink=None)
 
         token = settings.logfire_token.get_secret_value()
         # Suppress warnings that can embed arbitrary token region text; reject unknown regions.
-        if not settings.logfire_base_url and not re.match(r"^pylf_v1_(?:us|eu)_", token):
+        if not settings.logfire_base_url and not re.match(r"^pylf_v[0-9]+_(?:us|eu)_", token):
             raise ValueError("prerequisite_missing")
         base = validate_base_url(
             AdvancedOptions(base_url=settings.logfire_base_url).generate_base_url(

@@ -23,7 +23,7 @@ def test_selected_private_key(tmp_path, monkeypatch, prefix, provider, kind, key
         monkeypatch.delenv(name, raising=False)
     path = tmp_path / ".env.local"
     path.write_text(f"MODEL={prefix}:synthetic\n{key}=synthetic-private-key\n")
-    settings = Settings(_env_file=path)
+    settings = Settings(_env_file=path, model_mode="direct")
     info = descriptor(settings.model)
     assert (info.provider, info.model_kind, info.credential_setting) == (provider, kind, key)
     assert isinstance(getattr(settings, key.lower()), SecretStr)
@@ -39,7 +39,7 @@ def test_selected_private_key(tmp_path, monkeypatch, prefix, provider, kind, key
 
 def test_unknown_legacy_resolution():
     """Custom direct runtime resolution is preserved but guidance has no descriptor."""
-    settings = Settings(_env_file=None, model="custom:example")
+    settings = Settings(_env_file=None, model="custom:example", model_mode="direct")
     assert descriptor(settings.model) is None
     assert selected_model(settings) == "custom:example"
 
@@ -51,7 +51,7 @@ def test_names_only_source_diagnostics(tmp_path, monkeypatch):
     path = tmp_path / ".env.local"
     path.write_text("OPENAI_API_KEY=synthetic-private-key\n")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    settings = Settings(_env_file=path)
+    settings = Settings(_env_file=path, model_mode="direct")
     assert setting_source(settings, "OPENAI_API_KEY") == "local-input"
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic-environment-key")
     assert setting_source(settings, "OPENAI_API_KEY") == "environment"

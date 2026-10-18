@@ -180,3 +180,33 @@ def test_renamed_export_detection_shared_with_distribution_guard():
     assert policy.private_content("package/config/renamed.json", native)
     assert not policy.private_content("tests/test_source.py", native)
     assert not policy.private_content("config/agents.json", b'{"agents":[]}')
+
+
+@pytest.mark.parametrize("publish_secret", [False, True])
+def test_shared_credential_reference_scans_resolved_value(tmp_path, publish_secret):
+    """A dotenv reference is public syntax; its resolved private credential is never publishable."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    secret = "synthetic-private-shared-project-value"
+    reference = "${SHARED_VALUE}"
+    (tmp_path / ".env.local").write_text(
+        "SHARED_VALUE=" + secret + "\nGATEWAY_API_KEY=" + reference + "\n"
+    )
+    (tmp_path / "README.md").write_text(secret if publish_secret else reference)
+    subprocess.run(["git", "add", "README.md"], cwd=tmp_path, check=True, capture_output=True)
+    result = subprocess.run([sys.executable, str(SCRIPT)], cwd=tmp_path, capture_output=True)
+    assert (result.returncode != 0) is publish_secret
+    assert secret.encode() not in result.stderr
+
+
+def test_reference_scanning_preserves_overridden_credentials(tmp_path):
+    """Later assignments cannot hide an earlier private credential from publication scanning."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    secret = "synthetic-overridden-private-value"
+    (tmp_path / ".env.local").write_text(
+        "LOGFIRE_TOKEN=" + secret + "\nLOGFIRE_TOKEN=other-value\n"
+    )
+    (tmp_path / "README.md").write_text(secret)
+    subprocess.run(["git", "add", "README.md"], cwd=tmp_path, check=True, capture_output=True)
+    result = subprocess.run([sys.executable, str(SCRIPT)], cwd=tmp_path, capture_output=True)
+    assert result.returncode != 0
+    assert secret.encode() not in result.stderr

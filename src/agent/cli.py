@@ -51,6 +51,10 @@ async def execute(args) -> int:
 
     if not configuration_free(args):
         require_root()
+    if args.command == "gateway":
+        from .gateway.commands import execute_gateway
+
+        return await execute_gateway(args)
     if args.command == "closeout":
         from .closeout.commands import execute_closeout
 
@@ -103,7 +107,16 @@ async def execute(args) -> int:
         print(json.dumps({"mode": "synthetic", "audit": runtime.audit.events}))
         return 0 if result.status == "completed" else 1
     settings = Settings()
-    principal = await authenticated_principal(settings)
+    selected = selected_model(settings)
+    boundary = getattr(selected, "_agent_gateway", None)
+    try:
+        if boundary:
+            boundary.check()
+        principal = await authenticated_principal(settings)
+    except BaseException:
+        if boundary:
+            await boundary.aclose()
+        raise
     telemetry = configure_telemetry(settings)
     from .broker import DatabaseBroker
     from .services import VerifyApprovalBackend
@@ -111,36 +124,43 @@ async def execute(args) -> int:
     runtime = Runtime(
         settings,
         telemetry=telemetry,
-        model=selected_model(settings),
+        model=selected,
         database_reader=DatabaseBroker(settings, settings.bearer_token, principal.subject)
         if settings.database_host
         else None,
         approval_backend=VerifyApprovalBackend(settings) if settings.verify_push_enabled else None,
     )
-    if args.command == "run":
-        result = await runtime.run(RequestEnvelope(task=args.task, profile=args.profile), principal)
-        print(result.model_dump_json())
-        return 0 if result.status == "completed" else 1
-    if args.command == "batch":
-        failed = False
-        with Path(args.input).open() as file:
-            for index, line in enumerate(file, 1):
-                if not line.strip():
-                    continue
-                try:
-                    request = RequestEnvelope.model_validate_json(line)
-                    result = await runtime.run(request, principal)
-                    print(result.model_dump_json())
-                    failed |= result.status != "completed"
-                except ValueError:
-                    print(
-                        json.dumps(
-                            {"status": "failed", "error_code": "invalid_request", "line": index}
+    try:
+        if args.command == "run":
+            result = await runtime.run(
+                RequestEnvelope(task=args.task, profile=args.profile), principal
+            )
+            print(result.model_dump_json())
+            return 0 if result.status == "completed" else 1
+        if args.command == "batch":
+            failed = False
+            with Path(args.input).open() as file:
+                for index, line in enumerate(file, 1):
+                    if not line.strip():
+                        continue
+                    try:
+                        request = RequestEnvelope.model_validate_json(line)
+                        result = await runtime.run(request, principal)
+                        print(result.model_dump_json())
+                        failed |= result.status != "completed"
+                    except ValueError:
+                        print(
+                            json.dumps(
+                                {"status": "failed", "error_code": "invalid_request", "line": index}
+                            )
                         )
-                    )
-                    failed = True
-        return 1 if failed else 0
-    return 1
+                        failed = True
+            return 1 if failed else 0
+        return 1
+    finally:
+        await runtime.aclose()
+        telemetry.flush()
+        telemetry.shutdown()
 
 
 def main() -> None:
@@ -180,6 +200,9 @@ def main() -> None:
     from .governance.commands import add_governance_parser
 
     add_governance_parser(sub)
+    from .gateway.commands import add_gateway_parser
+
+    add_gateway_parser(sub)
     from .closeout.commands import add_closeout_parser
 
     add_closeout_parser(sub)

@@ -94,6 +94,9 @@ ACTIONS = MappingProxyType(
         "validate-allow-deny": SetupAction(
             id="validate-allow-deny", effect="live-read-and-cleanup"
         ),
+        "gateway-review": SetupAction(
+            id="gateway-review", effect="human-action", owner="gateway-administrator"
+        ),
         "integration-review": SetupAction(
             id="integration-review", effect="human-action", owner="integration-owner"
         ),

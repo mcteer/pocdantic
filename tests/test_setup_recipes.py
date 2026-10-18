@@ -153,7 +153,7 @@ def test_catalog_commands_are_complete_and_only_compiled():
     """Every action references either a literal command or an explicit human handoff."""
     from agent.setup.recipes import ACTIONS
 
-    assert len(ACTIONS) == 17
+    assert len(ACTIONS) == 18
     for action in ACTIONS.values():
         if action.command_id:
             for recipe in RECIPES:

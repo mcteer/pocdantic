@@ -38,6 +38,8 @@ def test_operator_closure_and_manual_new_submission(workspace_browser, authority
     page.goto(origin)
     page.get_by_role("button", name="Sign in", exact=True).click()
     expect(page.locator("#session-status")).to_have_text("Signed in")
+    # Initial status content above the form must settle before pointer interactions.
+    expect(page.locator("#operations-status")).to_contain_text("Recovery:")
     page.locator("#task").fill("old task")
     page.get_by_role("button", name="Run", exact=True).click()
     expect(page.locator("#status")).to_have_text("Completed")
@@ -107,6 +109,8 @@ def test_operator_closure_and_manual_new_submission(workspace_browser, authority
     assert len(calls) == 1 and app.state.test_counts == prior_counts
     if authority == "active":
         expect(page.locator("#session-status")).to_have_text("Signed in")
+        # Initial status content above the form must settle before pointer interactions.
+        expect(page.locator("#operations-status")).to_contain_text("Recovery:")
         expect(page.locator("#status")).to_have_text("Completed")
         page.locator("#task").fill("new manually submitted task")
         page.get_by_role("button", name="Run", exact=True).click()
@@ -141,6 +145,8 @@ def test_restart_loses_sessions_jobs_but_keeps_durable_block(workspace_browser):
     page.goto(origin)
     page.get_by_role("button", name="Sign in", exact=True).click()
     expect(page.locator("#session-status")).to_have_text("Signed in")
+    # Initial status content above the form must settle before pointer interactions.
+    expect(page.locator("#operations-status")).to_contain_text("Recovery:")
     store = app.state.recovery
     with store.effect() as owner:
         item = journal_operation(lambda: store.begin(owner))

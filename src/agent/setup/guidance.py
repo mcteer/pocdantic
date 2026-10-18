@@ -101,6 +101,19 @@ def guide(
     report = local_check(settings, project=project, recipe=recipe)
     observation = observe(settings, project=project)
     findings, actions = [], []
+    gateway_review_needed = False
+    if settings.model_mode == "gateway":
+        from agent.gateway.config import bindings, route_policy
+        from agent.gateway.review import ReviewStore
+
+        try:
+            from pathlib import Path
+
+            ReviewStore(Path(project or Path.cwd()).absolute()).admit(
+                bindings(settings, route_policy(settings))
+            )
+        except Exception:
+            gateway_review_needed = True
 
     def add(identifier, *, requires=(), owner=None):
         """Append a compiled suggestion with explicit future prerequisites."""
@@ -121,6 +134,8 @@ def guide(
                 key = ("model-unsupported", "model", "integration-owner", "integration-review")
             elif name.endswith("_EXTRA"):
                 key = ("dependency-missing", "dependency", "operator", "install-extras")
+            elif name.startswith("GATEWAY_"):
+                key = ("configuration-missing", "model", "gateway-administrator", "edit-settings")
             elif name.endswith("_API_KEY"):
                 key = ("model-missing", "model", "operator", "edit-settings")
             elif name.startswith(("OAUTH_", "LOGIN_")):
@@ -154,7 +169,12 @@ def guide(
             )
         if any(name.endswith("_EXTRA") for name in names):
             add("install-extras")
-        add("integration-review" if unsupported else "edit-settings")
+        if unsupported:
+            add("integration-review")
+        # A model migration can coexist with missing inputs. Keep both repairs
+        # visible and make the recheck depend on every required prerequisite.
+        if not unsupported or any(f.action_id == "edit-settings" for f in findings):
+            add("edit-settings")
         add("check-local", requires=tuple(a.id for a in actions))
         state, exit_code = "needs-input", 2
     elif observation.recovery_state not in {"clear", "absent"} or observation.response_state in {
@@ -174,6 +194,18 @@ def guide(
             )
         )
         state, exit_code = "blocked", 3
+    elif gateway_review_needed:
+        add("gateway-review")
+        findings.append(
+            PrerequisiteFinding(
+                id="gateway-review",
+                boundary="model",
+                state="unverified",
+                owner="gateway-administrator",
+                action_id="gateway-review",
+            )
+        )
+        state, exit_code = "needs-review", 3
     else:
         if observation.response_state in {"absent", "draft"}:
             add("check-network")

@@ -36,10 +36,11 @@ def create_app(settings: Settings | None = None, *, recovery_store=None) -> Fast
     if not config.oauth_audience:
         raise SecurityError("oauth_audience_missing")
     oauth_settings = oauth_config(config)
-    configure_telemetry(config)
+    telemetry = configure_telemetry(config)
     runtime = Runtime(
         config,
         model=selected_model(config),
+        telemetry=telemetry,
         approval_backend=VerifyApprovalBackend(config) if config.verify_push_enabled else None,
     )
     bearer = HTTPBearer()
@@ -53,7 +54,12 @@ def create_app(settings: Settings | None = None, *, recovery_store=None) -> Fast
                 config.oauth_audience,
                 token_typ=config.oauth_access_token_typ,
             )
-            yield
+            try:
+                yield
+            finally:
+                await runtime.aclose()
+                telemetry.flush()
+                telemetry.shutdown()
 
     app = FastAPI(title="PoCdantic", lifespan=lifespan)
 

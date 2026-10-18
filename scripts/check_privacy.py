@@ -5,6 +5,8 @@ The publication allowlist is separate from credential scanning. Local configurat
 is read only to detect accidental publication; its values are never printed.
 """
 
+from __future__ import annotations
+
 import argparse
 import re
 import subprocess
@@ -44,12 +46,21 @@ def credential_values():
     file = Path(".env.local")
     if not file.exists():
         return []
-    values = []
+    assignments = {}
+    entries = []
     for line in file.read_text().splitlines():
         if "=" not in line or line.lstrip().startswith("#"):
             continue
         key, value = line.split("=", 1)
-        value = value.strip().strip("\"'")
+        key, value = key.strip(), value.strip().strip("\"'")
+        assignments[key] = value
+        entries.append((key, value))
+    values = []
+    # Retain earlier literal assignments too: an overridden local credential is still private.
+    for key, raw in entries:
+        value = resolve_reference(raw, assignments)
+        if value is None:
+            continue
         if (
             any(
                 word in key.upper()
@@ -78,6 +89,26 @@ def credential_values():
                 except ValueError:
                     pass
     return values
+
+
+def resolve_reference(value: str, assignments: dict[str, str]) -> str | None:
+    """Resolve whole-value local dotenv references without treating syntax as a secret.
+
+    Follow at most 32 names and stop on missing/cyclic bindings. Only local values
+    are inspected; no shell expressions are evaluated and nothing is logged. Other
+    literal values retain the existing scanner behavior.
+    """
+    visited = set()
+    for _ in range(32):
+        match = re.fullmatch(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", value)
+        if match is None:
+            return value
+        name = match[1]
+        if name in visited or name not in assignments:
+            return None
+        visited.add(name)
+        value = assignments[name]
+    return None
 
 
 def main():

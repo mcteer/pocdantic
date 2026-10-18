@@ -52,6 +52,21 @@ and `DATABASE_HOST`. Existing `POCDANTIC_*` names and the `pocdantic` command
 remain supported; short variable names take precedence within the same source.
 Environment variables override `.env.local`.
 
+## Model Gateway controls
+
+New live setups require `MODEL_MODE=gateway`, an explicit private Gateway credential, explicit region,
+endpoint and exact model allowlist. Gateway adds credential blocking and spending controls;
+local model-use records exclude conversation content. Use the existing provider extra for its
+native protocol; Google Gateway requires an explicitly reviewed cloud/Vertex model.
+
+`agent gateway status` inspects local review state. Private-data activation requires an explicit,
+expiring review of actual routing, blocking and content-free telemetry evidence. Administration
+may be explicitly operator-owned; that does not attest spending or internal service retention. Fixed
+`agent gateway probe --case CASE` requests use synthetic data and may incur model spend; they
+need separate operational authorization. See [Gateway setup](docs/setup.md#model-gateway-controls).
+Existing enrolled deployments can explicitly retain `MODEL_MODE=direct`; the workspace identifies
+that Gateway protection is absent. Missing mode produces migration guidance before live dispatch.
+
 ## Browser workspace
 
 Follow the [setup runbook](docs/setup.md) for OIDC login, the selected model key,

@@ -14,7 +14,8 @@ Agent OAuth credentials and administrative Verify API credentials serve differen
 
 | Variable | Default |
 | --- | --- |
-| `MODEL` | `google-gla:gemini-3.8-flash` |
+| `MODEL_MODE` | Unset; explicit mode required for live work |
+| `MODEL` | Legacy `google-gla:gemini-3.8-flash`; Gateway requires explicit native selection |
 | `TIMEOUT_SECONDS` | `45` |
 | `REQUEST_LIMIT` | `8` |
 | `TOOL_CALLS_LIMIT` | `12` |
@@ -108,7 +109,16 @@ No cookie, session, browser URL or refresh environment setting is needed.
   it is separate from human/actor delegation.
 - Telemetry: `LOGFIRE_TOKEN` enables export. Region routing is automatic;
   `LOGFIRE_BASE_URL` is an optional trusted HTTPS override. The private
-  `LOGFIRE_PROJECT` alias binds imported receipt checks.
+  `LOGFIRE_PROJECT` alias binds imported receipt checks. Use a valid project write token,
+  independently of the Gateway key. Both current versioned project API keys with Send
+  telemetry permission and legacy write tokens are supported. Query telemetry permission is
+  needed only for independent hosted receipt checks, not normal export. `LOGFIRE_ENVIRONMENT` accepts `prd`, `synth`, `synthetic`,
+  `dev`, `playtest`, or `test`; other values export as `unclassified`. Fixed agent semantics
+  support the Agents view while prompts, tool arguments/results, binary content and model
+  parameters remain excluded. CLI/API/workspace flush metadata after runtime drain.
+  Gateway telemetry may export metadata with Include messages off after telemetry privacy review;
+  verify the selected destination and actual hosted data. Gateway diagnostics do not add a second
+  application attempt or cost.
 - Providers: use their standard credential variables, such as `GOOGLE_API_KEY`,
   `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY`, with the corresponding extra.
 
@@ -376,3 +386,43 @@ configuration access. Run from the canonical checkout/worktree root. Installed u
 anchors to cwd; Git must be available for stateful root discovery. No enrollment schema or file relocation is introduced: preserve aliases,
 authentication defaults and existing recovery/migration rules. Independent deployments use
 independent directories; never copy state or reset holds to make a check pass.
+
+## Gateway model boundary
+
+New live setups require `MODEL_MODE=gateway`; existing enrolled deployments may choose `direct`.
+`GATEWAY_REGION` has no default (`us`/`eu`); `GATEWAY_ROUTE` is a 1–64-character lowercase slug,
+never a URL. `GATEWAY_MODELS` is a JSON array of 1–16 unique exact protocol-qualified names
+containing MODEL. Native prefixes: `google-cloud`, `openai-chat`, `openai-responses`, `anthropic`.
+No wildcards, GLA conversion, arbitrary Gateway URL or direct fallback is allowed.
+
+`GATEWAY_API_KEY` and `LOGFIRE_GATEWAY_API_KEY` are private aliases; environment wins over file,
+and conflicting nonempty process values fail. Gateway mode ignores provider keys and ambient SDK
+Gateway URLs/custom auth headers. The final transport fixes origin/path/auth and disables
+proxies/redirects/retries. `LOGFIRE_TOKEN` configures metadata export. An operator may explicitly use one project API
+key for both purposes if it has both capabilities. In a private dotenv file, define
+`LOGFIRE_TOKEN` first, then `GATEWAY_API_KEY=${LOGFIRE_TOKEN}`; keep Gateway selection explicit.
+Legacy telemetry-only write tokens do not grant Gateway use, and upstream provider keys are
+never substituted.
+
+Keep Gateway conversation telemetry off and verify fresh traces. Internal service-retention
+review may remain explicitly operator-owned; do not present it as verified by telemetry.
+Native model SDK debug logging is disabled. Local attempts record opaque route/model references,
+run/attempt correlation, timing, usage and nullable observed cost; the private route registry
+permits local joins. Missing billing is unknown, not zero. No arbitrary-secret detection is claimed.
+
+Spending configuration remains the operator's responsibility. An explicit `operator-owned`
+administration review omits cap amounts and spending acceptance while retaining execution
+bounds and safe remote budget refusal. Legacy/default `reviewed` scope still requires finite
+whole-USD daily/monthly limits, pricing/blocking evidence and BYOK/concurrency review. Neither
+mode makes local counters authoritative billing limits or missing cost zero.
+
+Private `.local/gateway/` evidence/reviews use owner-only files, immutable decisions and an atomic
+pointer. Approval binds source/key/configuration/implementation and expires within 24 hours of
+observation. Rejection needs no working credentials/evidence. See [setup](setup.md#model-gateway-controls).
+
+An evidence bundle with `administration: "operator-owned"` requires exactly routing, protection
+and visible-telemetry privacy controls, all passing, complete live fixed-case observations and
+all existing source/configuration/key/revision/freshness bindings. It omits `spend` (or uses
+null). Spending and Gateway-internal retention remain operator-owned/unverified. Omitted scope
+defaults to the stricter legacy four-control review. CLI status reports the scope; the workspace
+labels operator-managed administration explicitly. A probe alone still cannot activate work.

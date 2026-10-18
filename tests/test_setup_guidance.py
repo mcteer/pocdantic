@@ -34,6 +34,7 @@ def test_repeat_clear_keeps_bytes(tmp_path, monkeypatch):
     settings, _, _, _, _ = deployment(tmp_path)
     settings = settings.model_copy(
         update={
+            "model_mode": "direct",
             "model": "openai:synthetic",
             "openai_api_key": SecretStr("synthetic"),
             "login_client_id": "synthetic",
@@ -79,6 +80,7 @@ def test_damage_never_suggests_initialization(tmp_path, damage):
     settings, _, _, _, _ = deployment(tmp_path)
     settings = settings.model_copy(
         update={
+            "model_mode": "direct",
             "model": "openai:synthetic",
             "openai_api_key": SecretStr("synthetic"),
             "login_client_id": "synthetic",
@@ -131,6 +133,7 @@ def test_held_response_and_stale_observation(tmp_path):
     settings, _, _, _, _ = deployment(tmp_path)
     settings = settings.model_copy(
         update={
+            "model_mode": "direct",
             "model": "openai:synthetic",
             "openai_api_key": SecretStr("synthetic"),
             "login_client_id": "synthetic",
@@ -165,3 +168,20 @@ def test_time_budget_cannot_promote_readiness(tmp_path, monkeypatch):
     assert result.exit_code == 2 and result.state == "blocked"
     assert result.findings[0].id == "budget-exhausted"
     assert not result.actions
+
+
+def test_gateway_migration_keeps_every_repair_action(tmp_path):
+    """A protocol review must not hide configuration repairs needed by the same deployment."""
+    settings = synthetic_settings().model_copy(
+        update={
+            "model_mode": "gateway",
+            "model": "google-gla:synthetic",
+            "gateway_api_key": SecretStr("synthetic-project-key"),
+        }
+    )
+    result = guide(settings, project=tmp_path)
+    available = {action.id for action in result.actions}
+    assert {finding.action_id for finding in result.findings} <= available
+    recheck = next(action for action in result.actions if action.id == "check-local")
+    assert {"integration-review", "edit-settings"} <= set(recheck.requires)
+    assert not (tmp_path / ".local").exists()

@@ -193,6 +193,11 @@ def implementation_revision():
     ]
     names += ["recovery/store.py", "recovery/models.py"]
     names += sorted(
+        "gateway/" + entry.name
+        for entry in root.joinpath("gateway").iterdir()
+        if entry.name.endswith(".py") and entry.is_file()
+    )
+    names += sorted(
         "governance/" + entry.name
         for entry in root.joinpath("governance").iterdir()
         if entry.name.endswith(".py") and entry.is_file()

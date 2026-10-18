@@ -10,6 +10,8 @@ def test_keyboard_sign_in_and_sign_out(workspace_browser):
     page.get_by_role("button", name="Sign in", exact=True).focus()
     page.keyboard.press("Enter")
     expect(page.locator("#session-status")).to_have_text("Signed in")
+    # Initial status content above the form must settle before pointer interactions.
+    expect(page.locator("#operations-status")).to_contain_text("Recovery:")
     assert provider.calls == ["authorization_code"]
     assert (
         page.evaluate("Object.keys(localStorage).length + Object.keys(sessionStorage).length") == 0
@@ -50,6 +52,8 @@ def test_submit_reload_inert_result_and_double_click(workspace_browser):
     page.goto(origin)
     page.get_by_role("button", name="Sign in", exact=True).click()
     expect(page.locator("#session-status")).to_have_text("Signed in")
+    # Initial status content above the form must settle before pointer interactions.
+    expect(page.locator("#operations-status")).to_contain_text("Recovery:")
     page.locator("#task").fill("<script>window.compromised=true</script>")
     page.locator("#profile").select_option("ticket-reader")
     page.get_by_role("button", name="Run", exact=True).focus()
@@ -74,6 +78,8 @@ def test_ten_signed_database_reads_and_exact_cleanup(workspace_browser):
     page.goto(origin)
     page.get_by_role("button", name="Sign in", exact=True).click()
     expect(page.locator("#session-status")).to_have_text("Signed in")
+    # Initial status content above the form must settle before pointer interactions.
+    expect(page.locator("#operations-status")).to_contain_text("Recovery:")
     page.locator("#profile").select_option("database-reader")
     for index in range(10):
         page.locator("#task").fill("Read database record 1")
@@ -102,6 +108,8 @@ def test_retry_is_explicit_and_does_not_replay_model(workspace_browser):
     page.goto(origin)
     page.get_by_role("button", name="Sign in", exact=True).click()
     expect(page.locator("#session-status")).to_have_text("Signed in")
+    # Initial status content above the form must settle before pointer interactions.
+    expect(page.locator("#operations-status")).to_contain_text("Recovery:")
     page.locator("#task").fill("Request simulated restart")
     page.get_by_role("button", name="Run", exact=True).click()
     expect(page.locator("#status")).to_have_text("Failed — approval unconfirmed", timeout=2000)
@@ -131,6 +139,8 @@ def test_lost_submission_reuses_uuid(workspace_browser):
     page.goto(origin)
     page.get_by_role("button", name="Sign in", exact=True).click()
     expect(page.locator("#session-status")).to_have_text("Signed in")
+    # Initial status content above the form must settle before pointer interactions.
+    expect(page.locator("#operations-status")).to_contain_text("Recovery:")
     lost = []
 
     def lose(route):
@@ -159,6 +169,8 @@ def test_admission_refresh_in_webkit(workspace_browser):
     page.goto(origin)
     page.get_by_role("button", name="Sign in", exact=True).click()
     expect(page.locator("#session-status")).to_have_text("Signed in")
+    # Initial status content above the form must settle before pointer interactions.
+    expect(page.locator("#operations-status")).to_contain_text("Recovery:")
     session = next(iter(app.state.store.sessions.values()))
     session.credentials = session.credentials.with_expiry(time.time() + 1)
     page.locator("#task").fill("Read database record 1")
@@ -178,6 +190,8 @@ def test_terminal_approval_has_no_retry(workspace_browser):
     page.goto(origin)
     page.get_by_role("button", name="Sign in", exact=True).click()
     expect(page.locator("#session-status")).to_have_text("Signed in")
+    # Initial status content above the form must settle before pointer interactions.
+    expect(page.locator("#operations-status")).to_contain_text("Recovery:")
     page.locator("#task").fill("restart")
     page.locator("#run").click()
     expect(page.locator("#status")).to_have_text(
@@ -195,6 +209,8 @@ def test_waiting_status_is_visible_and_signout_interrupts(workspace_browser):
     page.goto(origin)
     page.get_by_role("button", name="Sign in", exact=True).click()
     expect(page.locator("#session-status")).to_have_text("Signed in")
+    # Initial status content above the form must settle before pointer interactions.
+    expect(page.locator("#operations-status")).to_contain_text("Recovery:")
     page.locator("#task").fill("restart")
     page.locator("#run").click()
     expect(page.locator("#status")).to_have_text("Waiting for your phone decision", timeout=2000)
@@ -228,6 +244,8 @@ def test_foreign_signed_session_cannot_view_job(workspace_browser):
     page.goto(origin)
     page.locator("#login").click()
     expect(page.locator("#session-status")).to_have_text("Signed in")
+    # Initial status content above the form must settle before pointer interactions.
+    expect(page.locator("#operations-status")).to_contain_text("Recovery:")
     page.locator("#task").fill("hello")
     page.locator("#profile").select_option("ticket-reader")
     page.locator("#run").click()
@@ -239,6 +257,8 @@ def test_foreign_signed_session_cannot_view_job(workspace_browser):
     second.goto(origin)
     second.locator("#login").click()
     expect(second.locator("#session-status")).to_have_text("Signed in")
+    # Initial status content above the form must settle before pointer interactions.
+    expect(second.locator("#operations-status")).to_contain_text("Recovery:")
     expect(second.locator("#history li")).to_have_count(0)
     from uuid import uuid4
 
@@ -257,6 +277,8 @@ def test_database_permission_denial_has_zero_effects(workspace_browser):
     page.goto(origin)
     page.locator("#login").click()
     expect(page.locator("#session-status")).to_have_text("Signed in")
+    # Initial status content above the form must settle before pointer interactions.
+    expect(page.locator("#operations-status")).to_contain_text("Recovery:")
     page.locator("#task").fill("Read database record 1")
     page.locator("#profile").select_option("database-reader")
     page.locator("#run").click()
@@ -275,6 +297,8 @@ def test_database_signout_drains_exact_lease(workspace_browser):
     page.goto(origin)
     page.locator("#login").click()
     expect(page.locator("#session-status")).to_have_text("Signed in")
+    # Initial status content above the form must settle before pointer interactions.
+    expect(page.locator("#operations-status")).to_contain_text("Recovery:")
     page.locator("#task").fill("Read database record 1")
     page.locator("#profile").select_option("database-reader")
     page.locator("#run").click()
@@ -305,6 +329,8 @@ def test_signout_during_cleanup_keeps_gate_and_snapshot(workspace_browser):
     page.goto(origin)
     page.locator("#login").click()
     expect(page.locator("#session-status")).to_have_text("Signed in")
+    # Initial status content above the form must settle before pointer interactions.
+    expect(page.locator("#operations-status")).to_contain_text("Recovery:")
     page.locator("#task").fill("Read database record 1")
     page.locator("#profile").select_option("database-reader")
     page.locator("#run").click()
@@ -327,6 +353,8 @@ def test_multiple_sequential_leases_in_one_job(workspace_browser):
     page.goto(origin)
     page.locator("#login").click()
     expect(page.locator("#session-status")).to_have_text("Signed in")
+    # Initial status content above the form must settle before pointer interactions.
+    expect(page.locator("#operations-status")).to_contain_text("Recovery:")
     page.locator("#task").fill("Read database record 1 twice")
     page.locator("#profile").select_option("database-reader")
     page.locator("#run").click()
@@ -344,6 +372,8 @@ def test_history_keeps_keyboard_focus_while_polling(workspace_browser):
     page.goto(origin)
     page.locator("#login").click()
     expect(page.locator("#session-status")).to_have_text("Signed in")
+    # Initial status content above the form must settle before pointer interactions.
+    expect(page.locator("#operations-status")).to_contain_text("Recovery:")
     page.locator("#task").fill("hello")
     page.locator("#profile").select_option("ticket-reader")
     page.locator("#run").click()
