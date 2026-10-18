@@ -3,7 +3,7 @@
 **Input**: [Specification](spec.md), [plan](plan.md), [research](research.md),
 [data model](data-model.md), [runtime](contracts/runtime.md) and
 [administration](contracts/administration.md) contracts.
-**Status**: T001–T047 completed within the operator-approved scope. Live control review,
+**Status**: T001–T048 completed within the operator-approved scope. Live control review,
 signed-in read and analysis pass; spending and internal retention remain operator-owned
 and unverified. See [validation](validation.md) for separate external limitations.
 **Tests**: Required by FR-017 and the constitution; write meaningful failing regressions before
@@ -143,3 +143,5 @@ private-data deployment; private use requires all baseline stories and applicabl
 Each story has an independent fake-transport acceptance test. Keep security documentation and
 module/function explanations accurate as behavior changes. Use the user's next instruction to
 start implementation; every checkbox intentionally remains open here.
+
+- [X] T048 Fix the guided onboarding CI extras after the hosted job exposed an absent optional OpenTelemetry SDK in the new exporter-failure regressions. Install `logfire` for that fixed synthetic CI job, preserve the slim installed-artifact matrix, and verify the isolated locked Python 3.12 guided environment. (FR-017, FR-018)

@@ -482,3 +482,12 @@ responsibilities; independent upstream absence and inaccessible remote policy re
 not claimed. Existing external acceptance.json criteria retain their blocked dispositions.
 Maintainer review is required before merge; no commit, push, merge or publication occurred.
 The workspace remains running at the actual loopback URL and callback recorded above.
+
+## PR CI environment correction
+
+The initial PR onboarding job failed because its extras omitted Logfire while the expanded
+guided suite exercises two SDK exporter-failure cases. A clean isolated environment reproduced
+those two missing-SDK import failures (141 other guided tests passed). The job now installs the
+optional `logfire` extra alongside the native provider extras. No runtime dependency placement,
+application source, installed-artifact recipe or live evidence binding changed. The corrected
+locked Python 3.12 guided check passes with exit 0; remote CI results are tracked on PR #24.
