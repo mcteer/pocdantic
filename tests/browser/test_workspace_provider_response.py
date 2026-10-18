@@ -48,6 +48,8 @@ def test_partial_provider_details_owned_and_signout_private(workspace_browser):
         other.goto(origin)
         other.get_by_role("button", name="Sign in", exact=True).click()
         expect(other.locator("#session-status")).to_have_text("Signed in")
+        # Initial status content above the form must settle before pointer interactions.
+        expect(other.locator("#operations-status")).to_contain_text("Recovery:")
         peer = other.evaluate("fetch('/workspace/operations').then(r=>r.json())")
         assert str(incident.incident_id) not in str(peer)
         expect(other.locator("#provider-controls li")).to_have_count(0)
@@ -72,12 +74,16 @@ def test_subject_hold_closes_only_matching_session(workspace_browser):
         other.goto(origin)
         other.get_by_role("button", name="Sign in", exact=True).click()
         expect(other.locator("#session-status")).to_have_text("Signed in")
+        # Initial status content above the form must settle before pointer interactions.
+        expect(other.locator("#operations-status")).to_contain_text("Recovery:")
         store = app.state.response
         local_control(lambda: Coordinator(store).submit(signal(store.settings)))
         page.reload()
         expect(page.locator("#session-status")).to_have_text("Sign in to run a task")
         other.reload()
         expect(other.locator("#session-status")).to_have_text("Signed in")
+        # Initial status content above the form must settle before pointer interactions.
+        expect(other.locator("#operations-status")).to_contain_text("Recovery:")
         assert (
             other.evaluate("fetch('/workspace/operations').then(r=>r.json())")["containment"][
                 "incidents"

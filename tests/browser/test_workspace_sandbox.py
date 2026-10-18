@@ -1,6 +1,7 @@
 """WebKit displays generated code only for the owning session and as inert text."""
 
 import pytest
+from playwright.sync_api import expect
 
 
 @pytest.mark.parametrize("workspace_browser", [{"mode": "sandbox"}], indirect=True)
@@ -9,6 +10,8 @@ def test_real_engine_workspace_explanation(workspace_browser):
     page.goto(origin)
     page.click("#login")
     page.wait_for_selector("#logout:not([hidden])")
+    # Settle the initial status content above the form before pointer interactions.
+    expect(page.locator("#operations-status")).to_contain_text("Recovery:")
     page.select_option("#profile", "database-analyst")
     page.fill("#task", "Count and double the records")
     page.click("#run")

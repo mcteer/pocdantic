@@ -11,6 +11,8 @@ def test_gateway_refusal_is_safe_and_never_retried(workspace_browser):
     page.goto(origin)
     page.click("#login")
     expect(page.locator("#session-status")).to_have_text("Signed in")
+    # Initial status content above the form must settle before pointer interactions.
+    expect(page.locator("#operations-status")).to_contain_text("Recovery:")
     page.select_option("#profile", "ticket-reader")
     page.fill("#task", "Synthetic request")
     page.click("#run")

@@ -491,3 +491,18 @@ those two missing-SDK import failures (141 other guided tests passed). The job n
 optional `logfire` extra alongside the native provider extras. No runtime dependency placement,
 application source, installed-artifact recipe or live evidence binding changed. The corrected
 locked Python 3.12 guided check passes with exit 0; remote CI results are tracked on PR #24.
+
+The initial remote full-suite runs also exposed intermittent WebKit pointer submissions that
+left the view at `No task yet` across different tests. Signed-in text is rendered before the
+capability and operational-status content above the task form. Browser tests now wait for the
+initial operational status before pointer interactions; outcome assertions and timeouts are
+unchanged. This synchronizes fixture interaction with initial page layout, without changing
+production UI, authority, model behavior or source bindings. The subsequent corrected-extra
+PR run passed full pytest before this synchronization change; final CI still validates the
+new test commit independently.
+
+The local synchronized browser run reached 44 passed and one sandbox query-policy denial
+before credential acquisition. The isolated sandbox and Gateway/focus recheck passes all five
+tests; query admission and execution deadlines were not relaxed. Browser lint/format passes.
+Both hosted workflows on the corrected-extra commit passed all 32 checks. The final test-only
+synchronization commit is checked separately before merge; historical failures remain visible.
