@@ -348,7 +348,7 @@ Short names take precedence over supported legacy aliases. New fields follow the
 
 ## Optional Monty analysis
 
-The `sandbox` extra pins Monty 1.1.0 (matching client/runtime) and SQLGlot 30.22.0.
+The `sandbox` extra pins Monty 1.1.0 (matching client/runtime) and SQLGlot 30.23.0.
 Both use the MIT license. Review their distributed notices when redistributing these
 dependencies; this does not choose a license for the project. No additional service,
 administrator token or model provider is required. `MONTY_BIN` and PATH overrides do
