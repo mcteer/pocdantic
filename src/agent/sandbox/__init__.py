@@ -15,9 +15,9 @@ def available():
             all(
                 importlib.metadata.version(name) == version
                 for name, version in (
-                    ("pydantic-monty", "1.1.0"),
-                    ("pydantic-monty-client", "1.1.0"),
-                    ("pydantic-monty-runtime", "1.1.0"),
+                    ("pydantic-monty", "1.2.0"),
+                    ("pydantic-monty-client", "1.2.0"),
+                    ("pydantic-monty-runtime", "1.2.0"),
                     ("sqlglot", "30.23.0"),
                 )
             )
