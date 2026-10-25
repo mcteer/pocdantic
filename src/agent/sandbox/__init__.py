@@ -18,7 +18,7 @@ def available():
                     ("pydantic-monty", "1.2.0"),
                     ("pydantic-monty-client", "1.2.0"),
                     ("pydantic-monty-runtime", "1.2.0"),
-                    ("sqlglot", "30.23.0"),
+                    ("sqlglot", "30.24.0"),
                 )
             )
             and importlib.util.find_spec("pydantic_monty") is not None
