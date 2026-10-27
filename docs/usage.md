@@ -198,6 +198,48 @@ Teams notifications and customer closeout are not implemented in this baseline.
 
 ## Database provisioning and local fixtures
 
+### Optional Supabase keepalive
+
+The separate `Supabase keepalive` GitHub Actions workflow runs `SELECT 1` every six
+hours and supports manual dispatch. It is disabled until the repository variable
+`SUPABASE_KEEPALIVE_ENABLED` is exactly `true`. It never runs during CI or from a PR.
+[Supabase's pausing guidance](https://supabase.com/docs/guides/platform/free-project-pausing)
+says a few database requests daily are typically enough for free projects; this
+schedule cannot guarantee availability. Paid projects are exempt from inactivity
+pausing. Visiting the project dashboard can address a current warning.
+
+Administrator setup (no database provisioning is performed by the workflow):
+
+1. The database administrator supplies a dedicated, non-admin login with CONNECT
+   permission, no application-table write privileges or privileged role memberships,
+   and read-only transactions by default. `SELECT 1` needs no table grants. Do not
+   reuse the local administrative `SUPABASE_DB_URI` or expiring Vault leases.
+2. Obtain that login's URI using Supabase's **Connect** dialog. For GitHub-hosted
+   runners, choose an accessible endpoint (the shared session pooler supports IPv4);
+   retain its documented routing username and URL-encode password characters.
+   Download the trusted database CA from Supabase database settings.
+3. A repository administrator opens **Settings → Secrets and variables → Actions**
+   and adds repository secrets `SUPABASE_KEEPALIVE_DSN` (dedicated login URI) and
+   `SUPABASE_KEEPALIVE_CA` (PEM CA contents). Enter values directly there, never in
+   chat, source files, workflow YAML or command arguments. No service-role API key
+   or Supabase management token is needed.
+4. Set repository Actions variable `SUPABASE_KEEPALIVE_ENABLED` to `true`, then run
+   **Actions → Supabase keepalive → Run workflow** on the default branch. Expect
+   `keepalive_ok`. Missing secrets return `keepalive_missing_configuration`; all
+   connection/query failures return `keepalive_failed` without provider details.
+   The database administrator checks endpoint access, login and CA on failure.
+5. Confirm scheduled runs in Actions. To stop, set the variable to `false`; rotate
+   or revoke the dedicated credential through the database administrator as needed.
+
+The helper verifies TLS hostnames and CA trust, uses ten-second connection and
+five-second statement limits, and closes the connection and removes the temporary
+owner-only CA file. The workflow bounds the process to thirty seconds and the job
+to three minutes. It performs no writes or automatic retries. GitHub schedules may
+be delayed or disabled on inactive public repositories; monitor Actions and
+Supabase warnings. This is an operational heartbeat, not agent sign-in/read or
+provider-acceptance evidence. It remains unverified until the administrator's
+manual dispatch succeeds.
+
 Local PostgreSQL can run in OrbStack with `uv run --no-sync python scripts/local_lab.py up`
 after installing the `postgres` extra. It binds to `127.0.0.1:55432`, creates
 synthetic records, and verifies TLS using a generated local CA. Bootstrap

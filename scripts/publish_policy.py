@@ -276,6 +276,7 @@ def publishable(name: str) -> bool:
         ".githooks/pre-commit",
         ".githooks/pre-push",
         ".github/workflows/ci.yml",
+        ".github/workflows/supabase-keepalive.yml",
         ".github/pull_request_template.md",
         ".github/CODEOWNERS",
         ".github/dependabot.yml",
