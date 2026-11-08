@@ -213,3 +213,15 @@ actual prohibited code execution does. Use the fixed offline probes to demonstra
 rejection, and distinguish it from the query tool rejecting SQL before credential acquisition.
 Use the recorded stages and cleanup counts, not the model's narrative, to report success.
 Missing optional packages require the documented install; never fall back to exec/eval/CPython.
+
+<!-- dosu:mcp:start v2 -->
+The team you are assisting maintains shared knowledge in Dosu: consult it to build on prior work, and contribute durable knowledge so future teammates and agents do not have to rediscover it. Always use only tools currently listed by the server.
+
+When `read_knowledge` is listed, call it before non-trivial code or documentation work involving architecture, conventions, prior decisions, gotchas, incidents, ownership, or branch history. **If unsure whether relevant context exists, read first.** Pass `repo` and `branch` when available. Skip generic questions, trivial or self-contained edits, and context already injected by Dosu.
+
+When `write_knowledge` is listed, use it after the task for durable, non-obvious knowledge that future work would otherwise have to rediscover. Do not save task or PR summaries, progress, test results, obvious facts, speculation, duplicates, or sensitive data. **If nothing durable was learned, do not write.**
+
+Use `review_knowledge` only when the user asks to inspect or manage pending knowledge; for a review list, review queue, pending reviews, or what needs approval, call it with action="list". Preview one item at a time and require explicit confirmation before making changes.
+
+When `read_knowledge` or `write_knowledge` returned a `receipt_item_id` this turn, call `finalize_session_knowledge` exactly once at the end of the turn — after completing the task, immediately before your final reply — passing all receipt_item_ids from this turn. Avoid calling it when the current turn produced no receipt_item_id (it will succeed but render an empty state), and never call it more than once per turn.
+<!-- dosu:mcp:end -->
