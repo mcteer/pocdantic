@@ -15,10 +15,10 @@ def available():
             all(
                 importlib.metadata.version(name) == version
                 for name, version in (
-                    ("pydantic-monty", "1.2.0"),
-                    ("pydantic-monty-client", "1.2.0"),
-                    ("pydantic-monty-runtime", "1.2.0"),
-                    ("sqlglot", "30.25.0"),
+                    ("pydantic-monty", "1.4.0"),
+                    ("pydantic-monty-client", "1.4.0"),
+                    ("pydantic-monty-runtime", "1.4.0"),
+                    ("sqlglot", "30.29.0"),
                 )
             )
             and importlib.util.find_spec("pydantic_monty") is not None

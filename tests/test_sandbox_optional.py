@@ -1,9 +1,15 @@
 """Optional dependency detection must not disturb unrelated profiles."""
 
+import pytest
+
 from agent.sandbox import available
 
 
-def test_reviewed_versions_match_declared_pins(monkeypatch):
+@pytest.mark.parametrize(
+    "mismatched_package",
+    ["pydantic-monty", "pydantic-monty-client", "pydantic-monty-runtime", "sqlglot"],
+)
+def test_reviewed_versions_match_declared_pins(monkeypatch, mismatched_package):
     """Dependency updates must keep the fail-closed runtime check aligned with pins."""
     import tomllib
     from pathlib import Path
@@ -15,7 +21,7 @@ def test_reviewed_versions_match_declared_pins(monkeypatch):
     monkeypatch.setattr("importlib.metadata.version", pins.__getitem__)
     monkeypatch.setattr("importlib.util.find_spec", lambda _: object())
     assert available()
-    pins["sqlglot"] = "0.0.0"
+    pins[mismatched_package] = "0.0.0"
     assert not available()
 
 
